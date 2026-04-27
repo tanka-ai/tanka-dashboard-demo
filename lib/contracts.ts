@@ -109,3 +109,43 @@ export interface PointLedgerEntry {
   status: "已入账" | "待结算";
   relatedAccount?: string;
 }
+
+export interface TeamPointsLeaderboardEntry {
+  id: string;
+  userName: string;
+  team: string;
+  tier: PointsTier;
+  rank: number;
+  totalPoints: number;
+  monthlyDelta: number;
+  completedTasks: number;
+}
+
+export interface PointsTask {
+  id: string;
+  title: string;
+  category: "日常任务" | "成长任务" | "团队活动";
+  pointsReward: number;
+  dueDate: string;
+  assignee: string;
+  completionRate: number;
+  status: "待开始" | "进行中" | "已完成";
+}
+
+export interface RewardCatalogItem {
+  id: string;
+  title: string;
+  category: "培训资源" | "客户权益" | "团队激励";
+  pointsCost: number;
+  stockStatus: "充足" | "紧张" | "已兑换完";
+  description: string;
+}
+
+export interface PointsHighlight {
+  id: string;
+  title: string;
+  description: string;
+  tone: "accent" | "success" | "warning";
+  metricLabel: string;
+  metricValue: string;
+}

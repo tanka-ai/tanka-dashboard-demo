@@ -1,20 +1,20 @@
 {
   "appId": "dashboard-demo",
-  "name": "客户跟进 CRM",
-  "kind": "crm",
+  "name": "积分运营看板",
+  "kind": "points-dashboard",
   "builderMode": "edit",
   "runtime": "nextjs",
-  "description": "面向销售与客户成功团队的客户跟进工作台，覆盖线索推进、重点客户健康度、个人积分和近期跟进动作。",
+  "description": "面向企业团队的积分工作台，覆盖个人成长、任务获分、团队排行、流水结算和权益兑换。",
   "deployment": {
     "provider": "vercel",
     "status": "local-prototype"
   },
   "views": [
     {
-      "id": "crm-workbench",
-      "name": "CRM 工作台",
+      "id": "points-dashboard",
+      "name": "积分看板",
       "route": "/",
-      "description": "聚合今日跟进、商机漏斗、客户健康度、个人积分和最新活动。"
+      "description": "聚合积分余额、成长等级、团队排行、任务进度与兑换权益。"
     }
   ],
   "dataSources": [
@@ -24,18 +24,19 @@
       "requiredEnv": [
         "AIRTABLE_API_KEY",
         "AIRTABLE_BASE_ID",
-        "AIRTABLE_TABLE_CUSTOMERS",
-        "AIRTABLE_TABLE_FOLLOW_UPS",
-        "AIRTABLE_TABLE_OPPORTUNITIES"
+        "AIRTABLE_TABLE_POINTS_USERS",
+        "AIRTABLE_TABLE_POINTS_LEDGER",
+        "AIRTABLE_TABLE_POINTS_TASKS",
+        "AIRTABLE_TABLE_POINTS_REWARDS"
       ],
       "entities": [
-        "CustomerAccount",
-        "FollowUpTask",
-        "Opportunity",
-        "ActivityEntry",
         "UserPointsProfile",
         "PointsBreakdownItem",
-        "PointLedgerEntry"
+        "PointLedgerEntry",
+        "TeamPointsLeaderboardEntry",
+        "PointsTask",
+        "RewardCatalogItem",
+        "PointsHighlight"
       ]
     }
   ]

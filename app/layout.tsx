@@ -2,8 +2,8 @@ import type { Metadata } from "next";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "客户跟进 CRM",
-  description: "面向销售与客户成功团队的客户跟进工作台。",
+  title: "积分运营看板",
+  description: "面向企业团队的积分总览、排行、任务和兑换工作台。",
 };
 
 export default function RootLayout({
