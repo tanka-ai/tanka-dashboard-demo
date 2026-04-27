@@ -15,6 +15,8 @@ const compactCurrencyFormatter = new Intl.NumberFormat("zh-CN", {
   maximumFractionDigits: 2,
 });
 
+const numberFormatter = new Intl.NumberFormat("zh-CN");
+
 const dateFormatter = new Intl.DateTimeFormat("zh-CN", {
   month: "short",
   day: "numeric",
@@ -26,6 +28,10 @@ export function formatCurrency(amount: number) {
 
 export function formatCompactCurrency(amount: number) {
   return compactCurrencyFormatter.format(amount);
+}
+
+export function formatNumber(value: number) {
+  return numberFormatter.format(value);
 }
 
 export function formatDateLabel(input: string) {

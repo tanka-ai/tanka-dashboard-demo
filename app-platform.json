@@ -2,9 +2,9 @@
   "appId": "dashboard-demo",
   "name": "客户跟进 CRM",
   "kind": "crm",
-  "builderMode": "new",
+  "builderMode": "edit",
   "runtime": "nextjs",
-  "description": "面向销售与客户成功团队的客户跟进工作台，覆盖线索推进、重点客户健康度和近期跟进动作。",
+  "description": "面向销售与客户成功团队的客户跟进工作台，覆盖线索推进、重点客户健康度、个人积分和近期跟进动作。",
   "deployment": {
     "provider": "vercel",
     "status": "local-prototype"
@@ -14,7 +14,7 @@
       "id": "crm-workbench",
       "name": "CRM 工作台",
       "route": "/",
-      "description": "聚合今日跟进、商机漏斗、客户健康度和最新活动。"
+      "description": "聚合今日跟进、商机漏斗、客户健康度、个人积分和最新活动。"
     }
   ],
   "dataSources": [
@@ -32,7 +32,10 @@
         "CustomerAccount",
         "FollowUpTask",
         "Opportunity",
-        "ActivityEntry"
+        "ActivityEntry",
+        "UserPointsProfile",
+        "PointsBreakdownItem",
+        "PointLedgerEntry"
       ]
     }
   ]

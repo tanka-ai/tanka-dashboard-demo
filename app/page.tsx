@@ -8,7 +8,8 @@ import {
   crmPipelineStages,
   getCrmMetrics,
 } from "@/lib/mock-crm-data";
-import { formatCompactCurrency, formatDateLabel } from "@/lib/utils";
+import { pointLedgerEntries, userPointsBreakdown, userPointsProfile } from "@/lib/mock-points-data";
+import { formatCompactCurrency, formatDateLabel, formatNumber } from "@/lib/utils";
 
 const riskToneClasses = {
   low: "bg-emerald-50 text-emerald-700 ring-1 ring-emerald-200",
@@ -25,6 +26,10 @@ const priorityToneClasses = {
 export default function HomePage() {
   const metrics = getCrmMetrics();
   const focusAccounts = crmCustomers.filter((customer) => customer.priority !== "normal");
+  const pointsTierProgress =
+    ((userPointsProfile.currentPoints - userPointsProfile.currentTierFloor) /
+      (userPointsProfile.nextTierThreshold - userPointsProfile.currentTierFloor)) *
+    100;
 
   return (
     <main className="crm-shell min-h-screen px-4 py-6 text-slate-950 md:px-8">
@@ -144,6 +149,129 @@ export default function HomePage() {
           </Card>
 
           <div className="grid gap-6">
+            <Card className="panel overflow-hidden">
+              <CardHeader className="border-b border-slate-200/80 pb-5">
+                <div className="flex items-start justify-between gap-3">
+                  <div>
+                    <CardTitle>个人积分详情</CardTitle>
+                    <CardDescription>展示当前用户的成长积分、来源拆分和最近流水。</CardDescription>
+                  </div>
+                  <Badge tone="accent">{userPointsProfile.tier}</Badge>
+                </div>
+              </CardHeader>
+              <CardContent className="space-y-5 pt-6">
+                <div className="rounded-3xl bg-slate-950 p-5 text-white">
+                  <div className="flex flex-wrap items-start justify-between gap-4">
+                    <div>
+                      <div className="text-xs uppercase tracking-[0.2em] text-white/55">
+                        {userPointsProfile.userName} / {userPointsProfile.team}
+                      </div>
+                      <div className="mt-3 text-4xl font-semibold tracking-tight">
+                        {formatNumber(userPointsProfile.currentPoints)}
+                      </div>
+                      <div className="mt-2 text-sm text-white/72">{userPointsProfile.role}</div>
+                    </div>
+                    <div className="rounded-2xl bg-white/10 px-4 py-3 text-right">
+                      <div className="text-xs text-white/55">团队排名</div>
+                      <div className="mt-1 text-2xl font-semibold">#{userPointsProfile.rank}</div>
+                    </div>
+                  </div>
+
+                  <div className="mt-5 h-2.5 rounded-full bg-white/10">
+                    <div
+                      className="h-2.5 rounded-full bg-teal-400"
+                      style={{ width: `${Math.max(0, Math.min(pointsTierProgress, 100))}%` }}
+                    />
+                  </div>
+                  <div className="mt-3 flex flex-wrap items-center justify-between gap-2 text-xs text-white/72">
+                    <span>
+                      距离 {userPointsProfile.nextTier} 还差{" "}
+                      {formatNumber(userPointsProfile.nextTierThreshold - userPointsProfile.currentPoints)} 积分
+                    </span>
+                    <span>连续活跃 {userPointsProfile.streakDays} 天</span>
+                  </div>
+                </div>
+
+                <div className="grid gap-3 sm:grid-cols-3">
+                  <PointsStatCard label="本月新增" value={formatPointsDelta(userPointsProfile.monthlyEarnedPoints)} />
+                  <PointsStatCard label="待结算" value={formatNumber(userPointsProfile.pendingPoints)} />
+                  <PointsStatCard label="即将过期" value={formatNumber(userPointsProfile.expiringSoonPoints)} />
+                </div>
+
+                <div className="rounded-2xl border border-teal-100 bg-teal-50/70 p-4">
+                  <div className="text-xs uppercase tracking-[0.2em] text-teal-700">当前可兑换</div>
+                  <div className="mt-2 text-base font-semibold text-slate-950">
+                    {userPointsProfile.redeemableReward}
+                  </div>
+                  <div className="mt-1 text-sm text-slate-600">
+                    可在下一次客户复盘前兑换，用于支持高价值客户经营动作。
+                  </div>
+                </div>
+
+                <div>
+                  <div className="mb-3 flex items-center justify-between gap-3">
+                    <h3 className="text-sm font-semibold text-slate-950">积分来源</h3>
+                    <span className="text-xs text-slate-500">最近 30 天</span>
+                  </div>
+                  <div className="space-y-3">
+                    {userPointsBreakdown.map((item) => (
+                      <div key={item.id} className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm shadow-slate-200/50">
+                        <div className="flex items-center justify-between gap-3">
+                          <div className="text-sm font-medium text-slate-700">{item.label}</div>
+                          <div className="text-sm font-semibold text-slate-950">
+                            {formatNumber(item.points)} 分
+                          </div>
+                        </div>
+                        <div className="mt-3 h-2 rounded-full bg-slate-100">
+                          <div className="h-2 rounded-full bg-teal-500" style={{ width: `${item.share}%` }} />
+                        </div>
+                        <div className="mt-2 text-xs text-slate-500">占比 {item.share}%</div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+
+                <div>
+                  <div className="mb-3 flex items-center justify-between gap-3">
+                    <h3 className="text-sm font-semibold text-slate-950">最近流水</h3>
+                    <Badge tone="neutral">自动结算</Badge>
+                  </div>
+                  <div className="space-y-3">
+                    {pointLedgerEntries.map((entry) => (
+                      <div key={entry.id} className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm shadow-slate-200/50">
+                        <div className="flex items-start justify-between gap-4">
+                          <div className="min-w-0">
+                            <div className="flex flex-wrap items-center gap-2">
+                              <span className="text-sm font-semibold text-slate-950">{entry.title}</span>
+                              <Badge tone={entry.status === "已入账" ? "success" : "warning"}>{entry.category}</Badge>
+                            </div>
+                            <div className="mt-2 flex flex-wrap items-center gap-2 text-xs text-slate-500">
+                              <span>{formatDateLabel(entry.occurredAt)}</span>
+                              <span className="h-1 w-1 rounded-full bg-slate-300" />
+                              <span>{entry.status}</span>
+                              {entry.relatedAccount ? (
+                                <>
+                                  <span className="h-1 w-1 rounded-full bg-slate-300" />
+                                  <span>{entry.relatedAccount}</span>
+                                </>
+                              ) : null}
+                            </div>
+                          </div>
+                          <div
+                            className={`shrink-0 text-sm font-semibold ${
+                              entry.pointsDelta >= 0 ? "text-emerald-600" : "text-rose-600"
+                            }`}
+                          >
+                            {formatPointsDelta(entry.pointsDelta)}
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+
             <Card className="panel">
               <CardHeader>
                 <CardTitle>重点客户健康度</CardTitle>
@@ -343,4 +471,17 @@ function InfoPair({ label, value }: { label: string; value: string }) {
       <div className="mt-1 font-medium text-slate-700">{value}</div>
     </div>
   );
+}
+
+function PointsStatCard({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm shadow-slate-200/50">
+      <div className="text-xs uppercase tracking-[0.18em] text-slate-400">{label}</div>
+      <div className="mt-2 text-lg font-semibold text-slate-950">{value}</div>
+    </div>
+  );
+}
+
+function formatPointsDelta(value: number) {
+  return `${value > 0 ? "+" : ""}${formatNumber(value)}`;
 }

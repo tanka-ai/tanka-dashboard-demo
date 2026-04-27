@@ -4,6 +4,8 @@ export type RiskLevel = "low" | "medium" | "high";
 
 export type FollowUpPriority = "normal" | "key" | "urgent";
 
+export type PointsTier = "银卡" | "金卡" | "黑金";
+
 export interface CustomerAccount {
   id: string;
   name: string;
@@ -71,4 +73,39 @@ export interface CrmMetrics {
   openPipelineAmount: number;
   weightedForecastAmount: number;
   highRiskCustomers: number;
+}
+
+export interface UserPointsProfile {
+  userId: string;
+  userName: string;
+  team: string;
+  role: string;
+  tier: PointsTier;
+  currentPoints: number;
+  currentTierFloor: number;
+  nextTier: PointsTier;
+  nextTierThreshold: number;
+  monthlyEarnedPoints: number;
+  pendingPoints: number;
+  expiringSoonPoints: number;
+  rank: number;
+  streakDays: number;
+  redeemableReward: string;
+}
+
+export interface PointsBreakdownItem {
+  id: string;
+  label: string;
+  points: number;
+  share: number;
+}
+
+export interface PointLedgerEntry {
+  id: string;
+  title: string;
+  category: "签到加分" | "客户回访" | "商机推进" | "权益兑换";
+  pointsDelta: number;
+  occurredAt: string;
+  status: "已入账" | "待结算";
+  relatedAccount?: string;
 }
