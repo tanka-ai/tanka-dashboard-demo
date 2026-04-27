@@ -1,0 +1,39 @@
+{
+  "appId": "dashboard-demo",
+  "name": "客户跟进 CRM",
+  "kind": "crm",
+  "builderMode": "new",
+  "runtime": "nextjs",
+  "description": "面向销售与客户成功团队的客户跟进工作台，覆盖线索推进、重点客户健康度和近期跟进动作。",
+  "deployment": {
+    "provider": "vercel",
+    "status": "local-prototype"
+  },
+  "views": [
+    {
+      "id": "crm-workbench",
+      "name": "CRM 工作台",
+      "route": "/",
+      "description": "聚合今日跟进、商机漏斗、客户健康度和最新活动。"
+    }
+  ],
+  "dataSources": [
+    {
+      "provider": "airtable",
+      "status": "not_configured",
+      "requiredEnv": [
+        "AIRTABLE_API_KEY",
+        "AIRTABLE_BASE_ID",
+        "AIRTABLE_TABLE_CUSTOMERS",
+        "AIRTABLE_TABLE_FOLLOW_UPS",
+        "AIRTABLE_TABLE_OPPORTUNITIES"
+      ],
+      "entities": [
+        "CustomerAccount",
+        "FollowUpTask",
+        "Opportunity",
+        "ActivityEntry"
+      ]
+    }
+  ]
+}
