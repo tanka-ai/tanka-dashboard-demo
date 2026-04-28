@@ -9,8 +9,8 @@ import type {
 } from "@/lib/contracts";
 
 const APP_ID = "dashboard-demo";
-const TARGET_BASE_NAME = "OpenUI Points Dashboard Demo";
 const LIST_BASES_PATH = `/api/apps/${APP_ID}/data-sources/airtable/bases`;
+const PLATFORM_ORIGIN_ENV_KEYS = ["TANKA_PLATFORM_API_URL", "APP_URL", "NEXT_PUBLIC_APP_URL"] as const;
 
 const PERSON_NAME_FIELD_ALIASES = [
   "userName",
@@ -85,6 +85,42 @@ const UPDATED_AT_FIELD_ALIASES = [
   "最后修改时间",
 ] as const;
 
+const NORMALIZED_USER_TABLE_ALIASES = ["point_user", "points_user", "user_points", "member_points"] as const;
+const NORMALIZED_LEDGER_TABLE_ALIASES = ["point_ledger", "points_ledger", "ledger_points", "score_ledger"] as const;
+const USER_IDENTIFIER_FIELD_ALIASES = ["user_id", "userId", "member_id", "memberId", "employeeId"] as const;
+const LEDGER_POINTS_FIELD_ALIASES = [
+  "delta_score",
+  "pointsDelta",
+  "deltaPoints",
+  "scoreDelta",
+  "effective_score",
+  "积分变动",
+  "积分变化",
+  "积分值",
+] as const;
+const LEDGER_USER_REFERENCE_FIELD_ALIASES = ["user_id", "userId", "memberId", "personId"] as const;
+const LEDGER_DATE_FIELD_ALIASES = [
+  "accounting_date",
+  "accountingDate",
+  "occurredAt",
+  "earnedAt",
+  "createdDate",
+  "记账日期",
+  "积分日期",
+] as const;
+const INACTIVE_LEDGER_STATUS_TOKENS = [
+  "revoked",
+  "rejected",
+  "draft",
+  "pending",
+  "cancelled",
+  "作废",
+  "撤销",
+  "驳回",
+  "草稿",
+  "待审核",
+] as const;
+
 const TOTAL_POINTS_EXCLUDED_TOKENS = [
   "delta",
   "change",
@@ -139,6 +175,7 @@ interface DraftMemberRow {
 }
 
 interface TableCandidate {
+  sourceMode: "normalized-ledger" | "single-table";
   tableName: string;
   members: DraftMemberRow[];
   score: number;
@@ -149,6 +186,24 @@ interface TableCandidate {
   latestUpdatedAt: string | null;
 }
 
+interface NormalizedUserDirectoryRow {
+  recordId: string;
+  externalUserId: string | null;
+  userName: string;
+  teamName: string;
+  role: string | null;
+  updatedAt: string | null;
+}
+
+interface NormalizedLedgerRow {
+  id: string;
+  userReferenceIds: string[];
+  deltaScore: number;
+  occurredAt: string | null;
+  status: string | null;
+  createdTime: string | null;
+}
+
 export async function getPointsDashboardData(): Promise<PointsDashboardLoadResult> {
   noStore();
 
@@ -156,68 +211,68 @@ export async function getPointsDashboardData(): Promise<PointsDashboardLoadResul
     const origin = await resolveRuntimeOrigin();
     const basesPayload = await fetchJson(origin, LIST_BASES_PATH, "读取 Airtable base 列表");
     const bases = parseBaseList(basesPayload);
-    const targetBase = selectTargetBase(bases);
-
-    if (!targetBase) {
+    if (!bases.length) {
       return {
         status: "error",
         error: {
           code: "BASE_NOT_FOUND",
-          message: `未找到名为 “${TARGET_BASE_NAME}” 的 Airtable base。`,
-          detail: "请确认平台运行时已配置 Airtable Token，并且当前应用可访问这个 base。",
+          message: "当前 Airtable token 下没有可读取的 base。",
+          detail: "请确认平台运行时已配置正确的 Airtable Token，并且当前应用可访问至少一个 base。",
         },
       };
     }
 
-    const tablesPayload = await fetchJson(
-      origin,
-      `/api/apps/${APP_ID}/data-sources/airtable/bases/${encodeURIComponent(targetBase.id)}/tables`,
-      "读取 Airtable 表列表",
+    const inspectionResults = await Promise.allSettled(bases.map((base) => inspectBase(origin, base)));
+    const warnings = inspectionResults.flatMap((result) =>
+      result.status === "rejected" ? [getUnknownErrorMessage(result.reason)] : result.value.warnings,
     );
-    const tables = parseTableList(tablesPayload);
 
-    if (!tables.length) {
+    let scannedTableCount = 0;
+    const candidates = inspectionResults
+      .filter(
+        (result): result is PromiseFulfilledResult<{
+          base: AirtableBaseMeta;
+          tableCount: number;
+          candidate: TableCandidate | null;
+          warnings: string[];
+        }> => result.status === "fulfilled",
+      )
+      .map((result) => {
+        scannedTableCount += result.value.tableCount;
+        return {
+          base: result.value.base,
+          candidate: result.value.candidate,
+        };
+      })
+      .filter((entry): entry is { base: AirtableBaseMeta; candidate: TableCandidate } => entry.candidate !== null);
+
+    if (!scannedTableCount) {
       return {
         status: "error",
         error: {
           code: "TABLES_NOT_FOUND",
-          message: `base “${targetBase.name}” 下没有可读取的数据表。`,
-          detail: "请确认该 base 中已经创建了个人积分明细表，且平台运行时对这些表有读取权限。",
+          message: "当前可访问的 Airtable base 下没有可读取的数据表。",
+          detail: "请确认当前 token 对目标 base 的表拥有读取权限。",
         },
       };
     }
 
-    const tableResults = await Promise.allSettled(
-      tables.map((table) => loadTableCandidate(origin, targetBase.id, table)),
-    );
+    const bestCandidate = candidates.sort((left, right) => right.candidate.score - left.candidate.score)[0];
 
-    const warnings = tableResults.flatMap((result) =>
-      result.status === "rejected" ? [getUnknownErrorMessage(result.reason)] : result.value.warnings,
-    );
-
-    const candidates = tableResults
-      .filter((result): result is PromiseFulfilledResult<{ candidate: TableCandidate | null; warnings: string[] }> => {
-        return result.status === "fulfilled";
-      })
-      .map((result) => result.value.candidate)
-      .filter((candidate): candidate is TableCandidate => candidate !== null);
-
-    const bestCandidate = candidates.sort((left, right) => right.score - left.score)[0];
-
-    if (!bestCandidate || !bestCandidate.members.length) {
+    if (!bestCandidate || !bestCandidate.candidate.members.length) {
       return {
         status: "error",
         error: {
           code: "POINTS_TABLE_NOT_FOUND",
-          message: "没有识别出可用于团队/个人积分排行的 Airtable 表。",
-          detail: "请确认至少有一张表包含成员姓名、团队名称和累计积分字段。",
+          message: "没有识别出可用于积分看板的 Airtable 数据结构。",
+          detail: `已扫描 ${bases.length} 个 base、${scannedTableCount} 张表。请优先提供 point_user + point_ledger，或至少提供包含成员、团队和累计积分字段的单表。`,
         },
       };
     }
 
     return {
       status: "ready",
-      data: buildDashboardData(targetBase, bestCandidate, warnings),
+      data: buildDashboardData(bestCandidate.base, bestCandidate.candidate, warnings),
     };
   } catch (error) {
     return {
@@ -229,6 +284,122 @@ export async function getPointsDashboardData(): Promise<PointsDashboardLoadResul
       },
     };
   }
+}
+
+async function inspectBase(origin: string, base: AirtableBaseMeta) {
+  const tablesPayload = await fetchJson(
+    origin,
+    `/api/apps/${APP_ID}/data-sources/airtable/bases/${encodeURIComponent(base.id)}/tables`,
+    `读取 base ${base.name} 的表列表`,
+  );
+  const tables = parseTableList(tablesPayload);
+
+  if (!tables.length) {
+    return {
+      base,
+      tableCount: 0,
+      candidate: null,
+      warnings: [] as string[],
+    };
+  }
+
+  const normalizedCandidate = await loadNormalizedPointsCandidate(origin, base, tables);
+  if (normalizedCandidate.candidate) {
+    return {
+      base,
+      tableCount: tables.length,
+      candidate: normalizedCandidate.candidate,
+      warnings: normalizedCandidate.warnings,
+    };
+  }
+
+  const tableResults = await Promise.allSettled(tables.map((table) => loadTableCandidate(origin, base.id, table)));
+  const warnings = [
+    ...normalizedCandidate.warnings,
+    ...tableResults.flatMap((result) =>
+      result.status === "rejected"
+        ? [`base “${base.name}” 读取表失败：${getUnknownErrorMessage(result.reason)}`]
+        : result.value.warnings,
+    ),
+  ];
+
+  const candidates = tableResults
+    .filter((result): result is PromiseFulfilledResult<{ candidate: TableCandidate | null; warnings: string[] }> => {
+      return result.status === "fulfilled";
+    })
+    .map((result) => result.value.candidate)
+    .filter((candidate): candidate is TableCandidate => candidate !== null);
+
+  return {
+    base,
+    tableCount: tables.length,
+    candidate: candidates.sort((left, right) => right.score - left.score)[0] ?? null,
+    warnings,
+  };
+}
+
+async function loadNormalizedPointsCandidate(origin: string, base: AirtableBaseMeta, tables: AirtableTableMeta[]) {
+  const userTable = findTableByAliases(tables, NORMALIZED_USER_TABLE_ALIASES);
+  const ledgerTable = findTableByAliases(tables, NORMALIZED_LEDGER_TABLE_ALIASES);
+
+  if (!userTable || !ledgerTable) {
+    return {
+      candidate: null,
+      warnings: [] as string[],
+    };
+  }
+
+  const [userPayload, ledgerPayload] = await Promise.all([
+    fetchJson(
+      origin,
+      `/api/apps/${APP_ID}/query/airtable?baseId=${encodeURIComponent(base.id)}&table=${encodeURIComponent(userTable.name)}`,
+      `读取表 ${userTable.name}`,
+    ),
+    fetchJson(
+      origin,
+      `/api/apps/${APP_ID}/query/airtable?baseId=${encodeURIComponent(base.id)}&table=${encodeURIComponent(ledgerTable.name)}`,
+      `读取表 ${ledgerTable.name}`,
+    ),
+  ]);
+
+  const users = parseRecordList(userPayload).map(mapNormalizedUserRow).filter((row): row is NormalizedUserDirectoryRow => {
+    return row !== null;
+  });
+  const ledgers = parseRecordList(ledgerPayload).map(mapNormalizedLedgerRow).filter((row): row is NormalizedLedgerRow => {
+    return row !== null;
+  });
+
+  if (!users.length || !ledgers.length) {
+    return {
+      candidate: null,
+      warnings: [
+        `base “${base.name}” 已识别到 ${userTable.name} / ${ledgerTable.name}，但可聚合的用户或积分流水为空。`,
+      ],
+    };
+  }
+
+  const aggregated = aggregateMembersFromLedger(users, ledgers);
+  if (!aggregated.members.length) {
+    return {
+      candidate: null,
+      warnings: aggregated.warnings,
+    };
+  }
+
+  return {
+    candidate: {
+      sourceMode: "normalized-ledger",
+      tableName: `${userTable.name} + ${ledgerTable.name}`,
+      members: aggregated.members,
+      score: scoreNormalizedCandidate(userTable.name, ledgerTable.name, aggregated.members.length, ledgers.length),
+      hasMonthlyDelta: aggregated.members.some((member) => member.monthlyDelta !== null),
+      hasRole: aggregated.members.some((member) => member.role),
+      fallbackTeamCount: aggregated.members.filter((member) => member.teamName === "未分组").length,
+      duplicateCount: 0,
+      latestUpdatedAt: aggregated.latestUpdatedAt,
+    },
+    warnings: aggregated.warnings,
+  };
 }
 
 async function loadTableCandidate(origin: string, baseId: string, table: AirtableTableMeta) {
@@ -263,6 +434,7 @@ async function loadTableCandidate(origin: string, baseId: string, table: Airtabl
 
   return {
     candidate: {
+      sourceMode: "single-table",
       tableName: table.name,
       members,
       score: scoreTableCandidate(table.name, members, {
@@ -278,6 +450,105 @@ async function loadTableCandidate(origin: string, baseId: string, table: Airtabl
       latestUpdatedAt,
     },
     warnings: [] as string[],
+  };
+}
+
+function aggregateMembersFromLedger(users: NormalizedUserDirectoryRow[], ledgers: NormalizedLedgerRow[]) {
+  const warnings: string[] = [];
+  const userDirectory = new Map<string, NormalizedUserDirectoryRow>();
+
+  for (const user of users) {
+    userDirectory.set(user.recordId, user);
+    if (user.externalUserId) {
+      userDirectory.set(normalizeToken(user.externalUserId), user);
+    }
+  }
+
+  const activeLedgers = ledgers.filter((ledger) => shouldIncludeLedger(ledger.status));
+  const skippedLedgerCount = ledgers.length - activeLedgers.length;
+  if (skippedLedgerCount > 0) {
+    warnings.push(`积分流水中有 ${skippedLedgerCount} 条非生效记录，已在看板统计中自动跳过。`);
+  }
+
+  const latestBusinessDate = activeLedgers.reduce<string | null>((latest, ledger) => {
+    if (!ledger.occurredAt) {
+      return latest;
+    }
+
+    if (!latest || Date.parse(ledger.occurredAt) > Date.parse(latest)) {
+      return ledger.occurredAt;
+    }
+
+    return latest;
+  }, null);
+  const monthlyReference = latestBusinessDate ? latestBusinessDate.slice(0, 7) : null;
+
+  const members = new Map<string, DraftMemberRow>();
+  let unresolvedLedgerCount = 0;
+
+  for (const ledger of activeLedgers) {
+    const resolvedUsers = ledger.userReferenceIds
+      .map((referenceId) => userDirectory.get(referenceId) ?? userDirectory.get(normalizeToken(referenceId)))
+      .filter((user): user is NormalizedUserDirectoryRow => user !== undefined)
+      .filter(deduplicateBy((user) => user.recordId));
+
+    if (!resolvedUsers.length) {
+      unresolvedLedgerCount += 1;
+      continue;
+    }
+
+    for (const user of resolvedUsers) {
+      const current = members.get(user.recordId) ?? {
+        id: user.recordId,
+        userName: user.userName,
+        teamName: user.teamName,
+        role: user.role,
+        totalPoints: 0,
+        monthlyDelta: monthlyReference ? 0 : null,
+        updatedAt: user.updatedAt,
+      };
+
+      current.totalPoints += ledger.deltaScore;
+      current.role = current.role ?? user.role;
+      current.teamName = current.teamName || user.teamName || "未分组";
+
+      if (monthlyReference && ledger.occurredAt?.startsWith(monthlyReference)) {
+        current.monthlyDelta = (current.monthlyDelta ?? 0) + ledger.deltaScore;
+      }
+
+      current.updatedAt = pickLatestTimestamp(current.updatedAt, ledger.createdTime ?? ledger.occurredAt ?? null);
+      members.set(user.recordId, current);
+    }
+  }
+
+  if (unresolvedLedgerCount > 0) {
+    warnings.push(`积分流水中有 ${unresolvedLedgerCount} 条记录未能关联到成员，已跳过这些数据。`);
+  }
+
+  for (const user of users) {
+    if (members.has(user.recordId)) {
+      continue;
+    }
+
+    members.set(user.recordId, {
+      id: user.recordId,
+      userName: user.userName,
+      teamName: user.teamName,
+      role: user.role,
+      totalPoints: 0,
+      monthlyDelta: monthlyReference ? 0 : null,
+      updatedAt: user.updatedAt,
+    });
+  }
+
+  const latestUpdatedAt = [...users.map((user) => user.updatedAt), ...activeLedgers.map((ledger) => ledger.createdTime)]
+    .filter((value): value is string => Boolean(value))
+    .reduce<string | null>((latest, value) => pickLatestTimestamp(latest, value), null);
+
+  return {
+    members: Array.from(members.values()),
+    latestUpdatedAt,
+    warnings,
   };
 }
 
@@ -377,7 +648,7 @@ function buildDashboardData(
   const topPerformer = personalLeaderboard[0];
 
   const warnings = [...inheritedWarnings];
-  if (!candidate.hasMonthlyDelta) {
+  if (candidate.sourceMode === "single-table" && !candidate.hasMonthlyDelta) {
     warnings.push(`表 “${candidate.tableName}” 未识别到“本月新增”字段，增量指标已自动隐藏。`);
   }
   if (!candidate.hasRole) {
@@ -393,7 +664,8 @@ function buildDashboardData(
   return {
     baseId: base.id,
     baseName: base.name,
-    peopleTableName: candidate.tableName,
+    sourceMode: candidate.sourceMode,
+    sourceTableName: candidate.tableName,
     lastSyncedAt: candidate.latestUpdatedAt,
     warnings,
     personalLeaderboard,
@@ -415,6 +687,13 @@ function buildDashboardData(
 }
 
 async function resolveRuntimeOrigin() {
+  for (const envKey of PLATFORM_ORIGIN_ENV_KEYS) {
+    const envValue = process.env[envKey];
+    if (envValue) {
+      return envValue.replace(/\/$/, "");
+    }
+  }
+
   const headerStore = await headers();
   const host = headerStore.get("x-forwarded-host") ?? headerStore.get("host");
   const protocol =
@@ -425,17 +704,12 @@ async function resolveRuntimeOrigin() {
     return `${protocol}://${host}`;
   }
 
-  const envOrigin = process.env.NEXT_PUBLIC_APP_URL ?? process.env.APP_URL;
-  if (envOrigin) {
-    return envOrigin.replace(/\/$/, "");
-  }
-
   const vercelUrl = process.env.VERCEL_URL;
   if (vercelUrl) {
     return `https://${vercelUrl.replace(/^https?:\/\//, "").replace(/\/$/, "")}`;
   }
 
-  throw new Error("无法推断当前应用运行时地址，缺少 host header 或可用的 APP_URL/VERCEL_URL。");
+  throw new Error("无法推断平台运行时地址，请配置 TANKA_PLATFORM_API_URL，或确保当前请求包含可用的 host header。");
 }
 
 async function fetchJson(origin: string, path: string, actionLabel: string) {
@@ -481,17 +755,59 @@ function parseTableList(payload: unknown) {
     .filter(deduplicateBy((table) => table.name));
 }
 
+function findTableByAliases(tables: AirtableTableMeta[], aliases: readonly string[]) {
+  const normalizedAliases = aliases.map(normalizeToken);
+
+  return (
+    tables.find((table) => {
+      const normalizedName = normalizeToken(table.name);
+      return normalizedAliases.some((alias) => normalizedName === alias || normalizedName.includes(alias));
+    }) ?? null
+  );
+}
+
 function parseRecordList(payload: unknown) {
   return extractObjectArrays(payload).flatMap((items) => items);
 }
 
-function selectTargetBase(bases: AirtableBaseMeta[]) {
-  const exactMatch = bases.find((base) => normalizeToken(base.name) === normalizeToken(TARGET_BASE_NAME));
-  if (exactMatch) {
-    return exactMatch;
+function mapNormalizedUserRow(record: JsonObject): NormalizedUserDirectoryRow | null {
+  const fields = getRecordFields(record);
+  const userName = pickStringField(fields, PERSON_NAME_FIELD_ALIASES);
+
+  if (!userName) {
+    return null;
   }
 
-  return bases.find((base) => normalizeToken(base.name).includes(normalizeToken(TARGET_BASE_NAME)));
+  return {
+    recordId: pickStringValue(record, ["id", "recordId"]) ?? `user-${normalizeToken(userName)}`,
+    externalUserId: pickStringField(fields, USER_IDENTIFIER_FIELD_ALIASES),
+    userName,
+    teamName: pickStringField(fields, TEAM_FIELD_ALIASES) ?? "未分组",
+    role: pickStringField(fields, ROLE_FIELD_ALIASES),
+    updatedAt: pickDateValue(record, ["createdTime", "created_at"]) ?? pickDateField(fields, UPDATED_AT_FIELD_ALIASES),
+  };
+}
+
+function mapNormalizedLedgerRow(record: JsonObject): NormalizedLedgerRow | null {
+  const fields = getRecordFields(record);
+  const deltaScore = pickNumberField(fields, LEDGER_POINTS_FIELD_ALIASES, []);
+  const userReferenceIds = pickStringArrayField(fields, LEDGER_USER_REFERENCE_FIELD_ALIASES);
+
+  if (deltaScore === null || !userReferenceIds.length) {
+    return null;
+  }
+
+  return {
+    id:
+      pickStringValue(record, ["id", "recordId"]) ??
+      pickStringField(fields, ["ledger_code", "ledgerId", "ledger_id"]) ??
+      `ledger-${normalizeToken(JSON.stringify(userReferenceIds))}-${String(deltaScore)}`,
+    userReferenceIds,
+    deltaScore,
+    occurredAt: pickDateField(fields, LEDGER_DATE_FIELD_ALIASES),
+    status: pickStringField(fields, ["status"]),
+    createdTime: pickDateValue(record, ["createdTime", "created_at"]),
+  };
 }
 
 function mapMemberRow(record: JsonObject): DraftMemberRow | null {
@@ -636,6 +952,15 @@ function pickStringField(fields: JsonObject, aliases: readonly string[]) {
   return exactMatch ? coerceString(exactMatch.value) : null;
 }
 
+function pickStringArrayField(fields: JsonObject, aliases: readonly string[]) {
+  const match = findFieldByAliases(fields, aliases, false) ?? findFieldByAliases(fields, aliases, true);
+  if (!match) {
+    return [];
+  }
+
+  return coerceStringArray(match.value);
+}
+
 function pickNumberField(fields: JsonObject, aliases: readonly string[], excludedTokens: readonly string[]) {
   const exactMatch = findFieldByAliases(fields, aliases, false, excludedTokens);
   if (exactMatch) {
@@ -705,6 +1030,16 @@ function pickStringValue(source: JsonObject, keys: readonly string[]) {
   return null;
 }
 
+function pickDateValue(source: JsonObject, keys: readonly string[]) {
+  const value = pickStringValue(source, keys);
+  if (!value) {
+    return null;
+  }
+
+  const timestamp = Date.parse(value);
+  return Number.isNaN(timestamp) ? null : new Date(timestamp).toISOString();
+}
+
 function coerceString(value: unknown): string | null {
   if (typeof value === "string") {
     const trimmed = value.trim();
@@ -726,6 +1061,15 @@ function coerceString(value: unknown): string | null {
   }
 
   return null;
+}
+
+function coerceStringArray(value: unknown): string[] {
+  if (!Array.isArray(value)) {
+    const single = coerceString(value);
+    return single ? [single] : [];
+  }
+
+  return value.map(coerceString).filter((item): item is string => Boolean(item));
 }
 
 function coerceNumber(value: unknown): number | null {
@@ -752,6 +1096,48 @@ function coerceNumber(value: unknown): number | null {
   }
 
   return null;
+}
+
+function shouldIncludeLedger(status: string | null) {
+  if (!status) {
+    return true;
+  }
+
+  const normalizedStatus = normalizeToken(status);
+  return !INACTIVE_LEDGER_STATUS_TOKENS.some((token) => normalizedStatus.includes(normalizeToken(token)));
+}
+
+function scoreNormalizedCandidate(
+  userTableName: string,
+  ledgerTableName: string,
+  memberCount: number,
+  ledgerCount: number,
+) {
+  let score = 400;
+  score += memberCount * 20;
+  score += ledgerCount * 4;
+
+  if (normalizeToken(userTableName).includes("pointuser")) {
+    score += 40;
+  }
+
+  if (normalizeToken(ledgerTableName).includes("pointledger")) {
+    score += 40;
+  }
+
+  return score;
+}
+
+function pickLatestTimestamp(left: string | null, right: string | null) {
+  if (!left) {
+    return right;
+  }
+
+  if (!right) {
+    return left;
+  }
+
+  return Date.parse(right) > Date.parse(left) ? right : left;
 }
 
 function normalizeToken(value: string) {

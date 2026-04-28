@@ -189,7 +189,8 @@ export interface PointsDashboardSummary {
 export interface PointsDashboardData {
   baseId: string;
   baseName: string;
-  peopleTableName: string;
+  sourceMode: "normalized-ledger" | "single-table";
+  sourceTableName: string;
   lastSyncedAt: string | null;
   warnings: string[];
   personalLeaderboard: PersonalPointsEntry[];

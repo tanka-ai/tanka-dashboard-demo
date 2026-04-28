@@ -42,14 +42,14 @@ function ReadyDashboard({ data }: { data: PointsDashboardData }) {
                 Base / {data.baseName}
               </span>
               <span className="rounded-full bg-white/85 px-3 py-1 text-xs font-medium text-slate-600 ring-1 ring-slate-200">
-                Table / {data.peopleTableName}
+                Tables / {data.sourceTableName}
               </span>
             </div>
             <h1 className="text-3xl font-semibold tracking-tight text-slate-950 md:text-4xl">
               团队与个人积分看板
             </h1>
             <p className="mt-3 max-w-3xl text-sm leading-6 text-slate-600 md:text-base">
-              当前页面通过平台运行时自动发现 Airtable 中的个人积分表，并汇总生成团队排行、个人排行和组织积分概况。
+              当前页面通过平台运行时直接读取 Airtable，并优先识别 `point_user + point_ledger` 模型；如果没有这组表，再回退到单表积分排行识别。
             </p>
           </div>
 
@@ -175,7 +175,7 @@ function ReadyDashboard({ data }: { data: PointsDashboardData }) {
           <CardContent className="space-y-4 pt-6">
             <div className="grid gap-3 md:grid-cols-2">
               <SourceInfoCard label="Base 名称" value={data.baseName} />
-              <SourceInfoCard label="个人积分表" value={data.peopleTableName} />
+              <SourceInfoCard label="积分源表" value={data.sourceTableName} />
               <SourceInfoCard label="Base ID" value={data.baseId} />
               <SourceInfoCard
                 label="最近同步"
@@ -185,13 +185,15 @@ function ReadyDashboard({ data }: { data: PointsDashboardData }) {
 
             <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm shadow-slate-200/50">
               <div className="flex flex-wrap items-center gap-2">
-                <Badge tone="accent">自动发现 base</Badge>
-                <Badge tone="neutral">自动识别个人积分表</Badge>
-                <Badge tone="neutral">团队榜由个人积分聚合</Badge>
+                <Badge tone="accent">自动扫描可访问 base</Badge>
+                <Badge tone="neutral">
+                  {data.sourceMode === "normalized-ledger" ? "ledger 聚合模式" : "单表识别模式"}
+                </Badge>
+                <Badge tone="neutral">团队榜由成员积分聚合</Badge>
               </div>
               <p className="mt-3 text-sm leading-6 text-slate-600">
-                当前应用没有在代码中依赖 `AIRTABLE_BASE_ID`，而是通过平台 metadata endpoint 定位
-                `OpenUI Points Dashboard Demo`，再从个人积分表聚合出团队积分情况。
+                当前应用不会写死 `AIRTABLE_BASE_ID`，也不会假设固定表名。它会先扫描当前 token 可见的
+                Airtable bases，再优先识别 `point_user + point_ledger`，最后才回退到单表积分榜结构。
               </p>
             </div>
 
@@ -229,15 +231,14 @@ function ErrorDashboard({ message, detail }: { message: string; detail?: string 
                 Airtable Points
               </span>
               <span className="rounded-full bg-white/85 px-3 py-1 text-xs font-medium text-slate-600 ring-1 ring-slate-200">
-                Base / OpenUI Points Dashboard Demo
+                Base / Airtable Runtime Discovery
               </span>
             </div>
             <h1 className="text-3xl font-semibold tracking-tight text-slate-950 md:text-4xl">
               团队与个人积分看板
             </h1>
             <p className="mt-3 max-w-3xl text-sm leading-6 text-slate-600 md:text-base">
-              页面已经切换为 Airtable 运行时读取模式，但当前还没有成功拿到 `OpenUI Points Dashboard Demo`
-              的数据。
+              页面已经切换为 Airtable 运行时读取模式，但当前还没有成功识别出可用于积分看板的数据结构。
             </p>
           </div>
 
@@ -249,9 +250,9 @@ function ErrorDashboard({ message, detail }: { message: string; detail?: string 
         </div>
 
         <div className="grid gap-px bg-slate-200/70 md:grid-cols-3">
-          <MetricTile label="目标 Base" value="OpenUI Points Dashboard Demo" helper="通过 metadata endpoint 自动发现" />
+          <MetricTile label="扫描范围" value="当前 token 可见 bases" helper="按平台运行时接口自动枚举" />
           <MetricTile label="数据来源" value="Airtable" helper="必须经平台运行时读取，不直接访问 Airtable API" />
-          <MetricTile label="当前输出" value="团队榜 + 个人榜" helper="等待识别到含成员/团队/积分字段的数据表" />
+          <MetricTile label="当前输出" value="团队榜 + 个人榜" helper="优先识别 point_user + point_ledger" />
         </div>
       </section>
 
@@ -266,12 +267,12 @@ function ErrorDashboard({ message, detail }: { message: string; detail?: string 
             description="在运行时环境中提供 `AIRTABLE_TOKEN`，不要在这个应用代码里写死 token 或 base id。"
           />
           <InstructionCard
-            title="2. 确认目标 base 可见"
-            description="确保 `/api/apps/dashboard-demo/data-sources/airtable/bases` 返回名为 `OpenUI Points Dashboard Demo` 的 base。"
+            title="2. 确认平台 API 可访问"
+            description="本地或分离部署环境下请配置 `TANKA_PLATFORM_API_URL`，确保应用能访问 `/api/apps/dashboard-demo/...` 运行时接口。"
           />
           <InstructionCard
-            title="3. 准备个人积分表"
-            description="至少需要一张表能识别出成员姓名、团队名称和累计积分字段；如果还有本月新增或岗位字段，页面会自动展示更多指标。"
+            title="3. 准备积分数据结构"
+            description="优先使用 `point_user` + `point_ledger`；如果没有，也至少需要一张表能识别出成员姓名、团队名称和累计积分字段。"
           />
           <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm shadow-slate-200/50">
             <div className="text-sm font-semibold text-slate-950">运行时接口约定</div>

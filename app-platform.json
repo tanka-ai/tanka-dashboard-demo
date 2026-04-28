@@ -30,6 +30,9 @@
       "requiredEnv": [
         "AIRTABLE_TOKEN"
       ],
+      "optionalEnv": [
+        "TANKA_PLATFORM_API_URL"
+      ],
       "entities": [
         "PointsDashboardData",
         "PersonalPointsEntry",
