@@ -4,7 +4,7 @@
   "kind": "points-dashboard",
   "builderMode": "edit",
   "runtime": "nextjs",
-  "description": "面向企业团队的积分工作台，覆盖个人成长、任务获分、团队排行、流水结算和权益兑换。",
+  "description": "面向企业团队的积分工作台，通过 Airtable 自动汇总团队与个人积分表现。",
   "deployment": {
     "provider": "vercel",
     "status": "local-prototype"
@@ -14,29 +14,28 @@
       "id": "points-dashboard",
       "name": "积分看板",
       "route": "/",
-      "description": "聚合积分余额、成长等级、团队排行、任务进度与兑换权益。"
+      "description": "聚合 Airtable 中的团队积分排行、个人积分排行与组织积分概况。"
     }
   ],
   "dataSources": [
     {
       "provider": "airtable",
-      "status": "not_configured",
+      "status": "discoverable",
+      "baseIdStrategy": "metadata_api",
+      "runtimeEndpoints": {
+        "listBases": "/api/apps/dashboard-demo/data-sources/airtable/bases",
+        "listTables": "/api/apps/dashboard-demo/data-sources/airtable/bases/{baseId}/tables",
+        "queryRecords": "/api/apps/dashboard-demo/query/airtable?baseId={baseId}&table={tableName}"
+      },
       "requiredEnv": [
-        "AIRTABLE_API_KEY",
-        "AIRTABLE_BASE_ID",
-        "AIRTABLE_TABLE_POINTS_USERS",
-        "AIRTABLE_TABLE_POINTS_LEDGER",
-        "AIRTABLE_TABLE_POINTS_TASKS",
-        "AIRTABLE_TABLE_POINTS_REWARDS"
+        "AIRTABLE_TOKEN"
       ],
       "entities": [
-        "UserPointsProfile",
-        "PointsBreakdownItem",
-        "PointLedgerEntry",
-        "TeamPointsLeaderboardEntry",
-        "PointsTask",
-        "RewardCatalogItem",
-        "PointsHighlight"
+        "PointsDashboardData",
+        "PersonalPointsEntry",
+        "TeamPointsEntry",
+        "PointsDashboardSummary",
+        "PointsDashboardError"
       ]
     }
   ]

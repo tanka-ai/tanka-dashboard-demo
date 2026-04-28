@@ -149,3 +149,66 @@ export interface PointsHighlight {
   metricLabel: string;
   metricValue: string;
 }
+
+export interface PersonalPointsEntry {
+  id: string;
+  rank: number;
+  userName: string;
+  teamName: string;
+  role: string | null;
+  totalPoints: number;
+  monthlyDelta: number | null;
+}
+
+export interface TeamPointsEntry {
+  id: string;
+  rank: number;
+  teamName: string;
+  totalPoints: number;
+  averagePoints: number;
+  memberCount: number;
+  topPerformerName: string;
+  monthlyDelta: number | null;
+  shareOfTotal: number;
+}
+
+export interface PointsDashboardSummary {
+  teamCount: number;
+  memberCount: number;
+  totalPoints: number;
+  averagePoints: number;
+  membersAboveAverage: number;
+  topTeamName: string;
+  topTeamPoints: number;
+  topPerformerName: string;
+  topPerformerPoints: number;
+  fastestGrowingTeamName: string | null;
+  fastestGrowingTeamDelta: number | null;
+}
+
+export interface PointsDashboardData {
+  baseId: string;
+  baseName: string;
+  peopleTableName: string;
+  lastSyncedAt: string | null;
+  warnings: string[];
+  personalLeaderboard: PersonalPointsEntry[];
+  teamLeaderboard: TeamPointsEntry[];
+  summary: PointsDashboardSummary;
+}
+
+export interface PointsDashboardError {
+  code: "BASE_NOT_FOUND" | "TABLES_NOT_FOUND" | "POINTS_TABLE_NOT_FOUND" | "RUNTIME_UNAVAILABLE";
+  message: string;
+  detail?: string;
+}
+
+export type PointsDashboardLoadResult =
+  | {
+      status: "ready";
+      data: PointsDashboardData;
+    }
+  | {
+      status: "error";
+      error: PointsDashboardError;
+    };

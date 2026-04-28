@@ -22,6 +22,13 @@ const dateFormatter = new Intl.DateTimeFormat("zh-CN", {
   day: "numeric",
 });
 
+const dateTimeFormatter = new Intl.DateTimeFormat("zh-CN", {
+  month: "short",
+  day: "numeric",
+  hour: "2-digit",
+  minute: "2-digit",
+});
+
 export function formatCurrency(amount: number) {
   return currencyFormatter.format(amount);
 }
@@ -36,4 +43,8 @@ export function formatNumber(value: number) {
 
 export function formatDateLabel(input: string) {
   return dateFormatter.format(new Date(input));
+}
+
+export function formatDateTimeLabel(input: string) {
+  return dateTimeFormatter.format(new Date(input));
 }
