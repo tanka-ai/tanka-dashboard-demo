@@ -73,7 +73,7 @@ function ReadyDashboard({ data }: { data: PointsDashboardData }) {
           </div>
         </div>
 
-        <div className="grid gap-px bg-slate-200/70 md:grid-cols-4">
+        <div className="grid gap-px bg-slate-200/70 md:grid-cols-2 xl:grid-cols-5">
           <MetricTile
             label="团队数"
             value={formatNumber(data.summary.teamCount)}
@@ -88,6 +88,11 @@ function ReadyDashboard({ data }: { data: PointsDashboardData }) {
             label="积分总量"
             value={formatNumber(data.summary.totalPoints)}
             helper="当前 Airtable 个人积分累计值"
+          />
+          <MetricTile
+            label="冠军团队占比"
+            value={`${formatNumber(data.summary.topTeamSharePercent)}%`}
+            helper="第一名团队贡献的总积分占整体比例"
           />
           <MetricTile
             label="人均积分"

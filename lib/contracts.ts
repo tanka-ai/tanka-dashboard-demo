@@ -180,6 +180,7 @@ export interface PointsDashboardSummary {
   membersAboveAverage: number;
   topTeamName: string;
   topTeamPoints: number;
+  topTeamSharePercent: number;
   topPerformerName: string;
   topPerformerPoints: number;
   fastestGrowingTeamName: string | null;

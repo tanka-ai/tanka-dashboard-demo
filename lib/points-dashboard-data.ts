@@ -678,6 +678,7 @@ function buildDashboardData(
       membersAboveAverage: personalLeaderboard.filter((member) => member.totalPoints >= averagePoints).length,
       topTeamName: topTeam?.teamName ?? "暂无",
       topTeamPoints: topTeam?.totalPoints ?? 0,
+      topTeamSharePercent: totalPoints > 0 && topTeam ? Math.round((topTeam.totalPoints / totalPoints) * 100) : 0,
       topPerformerName: topPerformer?.userName ?? "暂无",
       topPerformerPoints: topPerformer?.totalPoints ?? 0,
       fastestGrowingTeamName: fastestGrowingTeam?.teamName ?? null,
