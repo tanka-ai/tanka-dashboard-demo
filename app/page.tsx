@@ -1,6 +1,13 @@
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import type { PersonalPointsEntry, PointsDashboardData, TeamPointsEntry } from "@/lib/contracts";
+import type {
+  PersonalPointsEntry,
+  PointCompositionEntry,
+  PointsDashboardData,
+  RoleContributionEntry,
+  TeamPointsEntry,
+  WorkflowStageEntry,
+} from "@/lib/contracts";
 import { getPointsDashboardData } from "@/lib/points-dashboard-data";
 import { formatDateTimeLabel, formatNumber } from "@/lib/utils";
 
@@ -21,120 +28,224 @@ export default async function HomePage() {
 }
 
 function ReadyDashboard({ data }: { data: PointsDashboardData }) {
-  const hasTeamDelta = data.teamLeaderboard.some((entry) => entry.monthlyDelta !== null);
+  const analytics = data.analytics;
+  const visibleTeams = data.teamLeaderboard.slice(0, 6);
+  const featuredTeams = visibleTeams.slice(0, 3);
+  const remainingTeams = visibleTeams.slice(3);
+  const visiblePeople = data.personalLeaderboard.slice(0, 10);
   const hasPersonalDelta = data.personalLeaderboard.some((entry) => entry.monthlyDelta !== null);
-  const highestAverageTeam = data.teamLeaderboard
-    .slice()
-    .sort((left, right) => right.averagePoints - left.averagePoints)[0];
-  const visibleTeams = data.teamLeaderboard.slice(0, 8);
-  const visiblePeople = data.personalLeaderboard.slice(0, 12);
+  const cycleLabel = formatCycleLabel(analytics?.ops.currentCycleLabel ?? null);
+  const queueCount =
+    (analytics?.ops.pendingEvaluationCount ?? 0) + (analytics?.ops.approvedEvaluationCount ?? 0);
 
   return (
     <>
-      <section className="panel overflow-hidden">
-        <div className="flex flex-col gap-8 px-6 py-6 lg:flex-row lg:items-end lg:justify-between lg:px-8">
+      <section className="panel relative overflow-hidden">
+        <div className="absolute inset-0 bg-[radial-gradient(circle_at_top_left,rgba(15,118,110,0.16),transparent_28rem),radial-gradient(circle_at_bottom_right,rgba(14,165,233,0.12),transparent_24rem)]" />
+        <div className="relative flex flex-col gap-8 px-6 py-6 lg:flex-row lg:items-end lg:justify-between lg:px-8">
           <div className="max-w-4xl">
             <div className="mb-4 flex flex-wrap items-center gap-3">
-              <span className="rounded-full bg-teal-600 px-3 py-1 text-xs font-semibold tracking-[0.24em] text-white uppercase">
-                Airtable Points
+              <span className="rounded-full bg-slate-950 px-3 py-1 text-xs font-semibold tracking-[0.24em] text-white uppercase">
+                Points Ops
               </span>
-              <span className="rounded-full bg-white/85 px-3 py-1 text-xs font-medium text-slate-600 ring-1 ring-slate-200">
+              <span className="rounded-full bg-white/90 px-3 py-1 text-xs font-medium text-slate-600 ring-1 ring-slate-200">
                 Base / {data.baseName}
               </span>
-              <span className="rounded-full bg-white/85 px-3 py-1 text-xs font-medium text-slate-600 ring-1 ring-slate-200">
-                Tables / {data.sourceTableName}
+              <span className="rounded-full bg-white/90 px-3 py-1 text-xs font-medium text-slate-600 ring-1 ring-slate-200">
+                {analytics ? "流程链路已识别" : "排行榜模式"}
               </span>
             </div>
+
             <h1 className="text-3xl font-semibold tracking-tight text-slate-950 md:text-4xl">
-              团队与个人积分看板
+              积分运营 Dashboard
             </h1>
             <p className="mt-3 max-w-3xl text-sm leading-6 text-slate-600 md:text-base">
-              当前页面通过平台运行时直接读取 Airtable，并优先识别 `point_user + point_ledger` 模型；如果没有这组表，再回退到单表积分排行识别。
+              先看组织积分热度，再看事项与评分流转，最后落到团队和成员表现。当前页面已经按这套积分模型自动聚合真实数据。
             </p>
           </div>
 
-          <div className="rounded-[28px] bg-slate-950 p-5 text-white lg:max-w-sm">
-            <div className="text-xs uppercase tracking-[0.18em] text-white/55">当前领先组合</div>
-            <div className="mt-3 text-3xl font-semibold tracking-tight">{data.summary.topTeamName}</div>
-            <div className="mt-2 text-sm text-white/72">
-              团队总分 {formatNumber(data.summary.topTeamPoints)}，个人第一名 {data.summary.topPerformerName}
+          <div className="panel-strong w-full max-w-md rounded-[30px] border border-white/80 p-5 shadow-[0_24px_60px_rgba(15,23,42,0.10)]">
+            <div className="flex items-center justify-between gap-3">
+              <div className="text-xs uppercase tracking-[0.18em] text-slate-400">本期焦点</div>
+              <Badge tone="accent">{cycleLabel}</Badge>
             </div>
+
+            <div className="mt-4">
+              <div className="text-3xl font-semibold tracking-tight text-slate-950">{data.summary.topTeamName}</div>
+              <div className="mt-2 text-sm leading-6 text-slate-600">
+                当前第一团队，总分 {formatNumber(data.summary.topTeamPoints)}，头部成员 {data.summary.topPerformerName}。
+              </div>
+            </div>
+
             <div className="mt-5 grid gap-3 sm:grid-cols-2">
-              <MetricMini label="个人最高分" value={`${formatNumber(data.summary.topPerformerPoints)} 分`} />
               <MetricMini
-                label="最快增长团队"
+                label="当前周期入账"
                 value={
-                  data.summary.fastestGrowingTeamName && data.summary.fastestGrowingTeamDelta !== null
-                    ? `${data.summary.fastestGrowingTeamName} ${formatSignedNumber(data.summary.fastestGrowingTeamDelta)}`
-                    : "未提供"
+                  analytics?.ops.currentCyclePoints !== null && analytics?.ops.currentCyclePoints !== undefined
+                    ? `${formatSignedNumber(analytics.ops.currentCyclePoints)} 分`
+                    : `${formatNumber(data.summary.totalPoints)} 分`
                 }
+              />
+              <MetricMini
+                label="待处理评分"
+                value={queueCount ? `${formatNumber(queueCount)} 条` : "当前顺畅"}
+              />
+              <MetricMini
+                label="冠军团队占比"
+                value={`${formatNumber(data.summary.topTeamSharePercent)}%`}
+              />
+              <MetricMini
+                label="最高分成员"
+                value={`${data.summary.topPerformerName} / ${formatNumber(data.summary.topPerformerPoints)}`}
               />
             </div>
           </div>
         </div>
 
-        <div className="grid gap-px bg-slate-200/70 md:grid-cols-2 xl:grid-cols-5">
+        <div className="grid gap-px bg-slate-200/70 md:grid-cols-2 xl:grid-cols-6">
           <MetricTile
             label="团队数"
             value={formatNumber(data.summary.teamCount)}
-            helper="参与积分榜单的团队数量"
+            helper={`头部团队贡献 ${formatNumber(data.summary.topTeamSharePercent)}%`}
           />
           <MetricTile
-            label="个人数"
+            label="成员数"
             value={formatNumber(data.summary.memberCount)}
-            helper="已识别并去重后的成员数量"
+            helper={`有积分成员 ${formatNumber(analytics?.ops.activeMemberCount ?? data.summary.memberCount)} 人`}
           />
           <MetricTile
             label="积分总量"
             value={formatNumber(data.summary.totalPoints)}
-            helper="当前 Airtable 个人积分累计值"
+            helper="当前已入账的累计积分"
           />
           <MetricTile
-            label="冠军团队占比"
-            value={`${formatNumber(data.summary.topTeamSharePercent)}%`}
-            helper="第一名团队贡献的总积分占整体比例"
+            label={`${cycleLabel}入账`}
+            value={
+              analytics?.ops.currentCyclePoints !== null && analytics?.ops.currentCyclePoints !== undefined
+                ? formatSignedNumber(analytics.ops.currentCyclePoints)
+                : formatNumber(data.summary.averagePoints)
+            }
+            helper={analytics ? "以最近有记录的月份作为当前周期" : "当前显示组织人均积分"}
           />
           <MetricTile
-            label="人均积分"
-            value={formatNumber(data.summary.averagePoints)}
-            helper={`高于均线 ${formatNumber(data.summary.membersAboveAverage)} 人`}
+            label="在途事项"
+            value={
+              analytics?.ops.openWorkItemCount !== null && analytics?.ops.openWorkItemCount !== undefined
+                ? formatNumber(analytics.ops.openWorkItemCount)
+                : formatNumber(data.summary.membersAboveAverage)
+            }
+            helper={analytics ? "未关闭事项数量" : "当前高于均线成员数"}
+          />
+          <MetricTile
+            label="评分待处理"
+            value={formatNumber(queueCount)}
+            helper={
+              analytics
+                ? `待审核 ${formatNumber(analytics.ops.pendingEvaluationCount ?? 0)}，待生效 ${formatNumber(analytics.ops.approvedEvaluationCount ?? 0)}`
+                : "当前模式不展示评分流转"
+            }
           />
         </div>
       </section>
 
-      <section className="grid gap-6 xl:grid-cols-[1.05fr_0.95fr]">
+      <section className="grid gap-6 xl:grid-cols-[1.1fr_0.9fr]">
+        <Card className="panel">
+          <CardHeader className="border-b border-slate-200/80 pb-5">
+            <CardTitle>积分流转漏斗</CardTitle>
+            <CardDescription>看事项推进、评分审批和当前事项类型分布，快速判断积分发放卡在哪一层。</CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-6 pt-6">
+            <PipelineLane
+              title="事项推进"
+              items={analytics?.workItemStages ?? []}
+              emptyText="当前没有可展示的事项流程数据。"
+            />
+            <PipelineLane
+              title="评分状态"
+              items={analytics?.evaluationStages ?? []}
+              emptyText="当前没有可展示的评分流程数据。"
+            />
+            <PipelineLane
+              title="事项类型"
+              items={analytics?.taskTypeBreakdown ?? []}
+              emptyText="当前没有可展示的事项分类数据。"
+              compact
+            />
+          </CardContent>
+        </Card>
+
+        <Card className="panel">
+          <CardHeader className="border-b border-slate-200/80 pb-5">
+            <CardTitle>积分结构</CardTitle>
+            <CardDescription>把当前积分拆成基础分、加分和扣分，方便判断激励是不是过于集中。</CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-4 pt-6">
+            {analytics?.pointComposition.length ? (
+              analytics.pointComposition.map((entry) => <CompositionRow key={entry.id} entry={entry} />)
+            ) : (
+              <EmptyState text="当前没有可展示的积分结构数据。" />
+            )}
+
+            <div className="grid gap-3 sm:grid-cols-2">
+              <InsightPanel
+                title="有效入账"
+                value={`${formatNumber(analytics?.ops.effectiveLedgerCount ?? data.personalLeaderboard.length)} 笔`}
+                description="已经进入积分统计口径的入账记录。"
+                tone="accent"
+              />
+              <InsightPanel
+                title="高于均线"
+                value={`${formatNumber(data.summary.membersAboveAverage)} 人`}
+                description={`当前组织人均积分 ${formatNumber(data.summary.averagePoints)}。`}
+                tone="success"
+              />
+            </div>
+          </CardContent>
+        </Card>
+      </section>
+
+      <section className="grid gap-6 xl:grid-cols-[1.08fr_0.92fr]">
         <Card className="panel">
           <CardHeader className="flex flex-col gap-4 border-b border-slate-200/80 pb-5 sm:flex-row sm:items-start sm:justify-between">
             <div>
-              <CardTitle>团队积分排行</CardTitle>
-              <CardDescription>按团队累计积分聚合，展示总分、人均和团队内最高分成员。</CardDescription>
+              <CardTitle>团队对比</CardTitle>
+              <CardDescription>先看头部团队，再看其他团队的总分占比、人均和团队带头人。</CardDescription>
             </div>
-            <div className="flex flex-wrap gap-2">
-              <Badge tone="accent">Top {visibleTeams.length}</Badge>
-              <Badge tone="neutral">{hasTeamDelta ? "含月增量" : "无月增量字段"}</Badge>
-            </div>
+            <Badge tone="accent">Top {visibleTeams.length}</Badge>
           </CardHeader>
-          <CardContent className="space-y-4 pt-6">
-            {visibleTeams.map((entry) => (
-              <TeamLeaderboardRow key={entry.id} entry={entry} hasMonthlyDelta={hasTeamDelta} />
-            ))}
+          <CardContent className="space-y-5 pt-6">
+            <div className="grid gap-4 lg:grid-cols-3">
+              {featuredTeams.map((entry) => (
+                <TeamSpotlightCard key={entry.id} entry={entry} topScore={Math.max(data.summary.topTeamPoints, 1)} />
+              ))}
+            </div>
+
+            {remainingTeams.length ? (
+              <div className="space-y-3">
+                {remainingTeams.map((entry) => (
+                  <CompactTeamRow key={entry.id} entry={entry} topScore={Math.max(data.summary.topTeamPoints, 1)} />
+                ))}
+              </div>
+            ) : null}
           </CardContent>
         </Card>
 
         <Card className="panel">
           <CardHeader className="flex flex-col gap-4 border-b border-slate-200/80 pb-5 sm:flex-row sm:items-start sm:justify-between">
             <div>
-              <CardTitle>个人积分排行</CardTitle>
-              <CardDescription>按个人累计积分排序，补充团队归属与本月变化。</CardDescription>
+              <CardTitle>成员排行</CardTitle>
+              <CardDescription>展示当前积分头部成员，并补充所属团队和最近周期变化。</CardDescription>
             </div>
-            <div className="flex flex-wrap gap-2">
-              <Badge tone="accent">Top {visiblePeople.length}</Badge>
-              <Badge tone="neutral">{hasPersonalDelta ? "显示本月新增" : "未识别月增量"}</Badge>
-            </div>
+            <Badge tone="neutral">Top {visiblePeople.length}</Badge>
           </CardHeader>
           <CardContent className="space-y-4 pt-6">
             {visiblePeople.map((entry) => (
-              <PersonalLeaderboardRow key={entry.id} entry={entry} hasMonthlyDelta={hasPersonalDelta} />
+              <PersonalLeaderboardRow
+                key={entry.id}
+                entry={entry}
+                hasMonthlyDelta={hasPersonalDelta}
+                topScore={Math.max(data.summary.topPerformerPoints, 1)}
+              />
             ))}
           </CardContent>
         </Card>
@@ -142,63 +253,49 @@ function ReadyDashboard({ data }: { data: PointsDashboardData }) {
 
       <section className="grid gap-6 xl:grid-cols-[0.9fr_1.1fr]">
         <Card className="panel">
-          <CardHeader>
-            <CardTitle>组织洞察</CardTitle>
-            <CardDescription>从当前积分榜单中抽取团队领先面和个人密度指标。</CardDescription>
+          <CardHeader className="border-b border-slate-200/80 pb-5">
+            <CardTitle>角色贡献</CardTitle>
+            <CardDescription>看不同角色的人数、总积分和人均表现，避免激励只落在单一角色上。</CardDescription>
           </CardHeader>
-          <CardContent className="grid gap-4">
-            <InsightPanel
-              title="领先团队"
-              value={data.summary.topTeamName}
-              description={`累计 ${formatNumber(data.summary.topTeamPoints)} 分，当前组织总榜第 1。`}
-              tone="accent"
-            />
-            <InsightPanel
-              title="最高人均"
-              value={highestAverageTeam?.teamName ?? "暂无"}
-              description={
-                highestAverageTeam
-                  ? `人均 ${formatNumber(highestAverageTeam.averagePoints)} 分，共 ${formatNumber(highestAverageTeam.memberCount)} 人。`
-                  : "暂无可计算的人均积分。"
-              }
-              tone="success"
-            />
-            <InsightPanel
-              title="高于均线"
-              value={`${formatNumber(data.summary.membersAboveAverage)} / ${formatNumber(data.summary.memberCount)}`}
-              description={`按当前人均积分 ${formatNumber(data.summary.averagePoints)} 分作为对比基线。`}
-              tone="warning"
-            />
+          <CardContent className="pt-6">
+            {analytics?.roleBreakdown.length ? (
+              <div className="grid gap-4 sm:grid-cols-2">
+                {analytics.roleBreakdown.map((entry) => (
+                  <RoleContributionCard key={entry.id} entry={entry} />
+                ))}
+              </div>
+            ) : (
+              <EmptyState text="当前没有可展示的角色贡献数据。" />
+            )}
           </CardContent>
         </Card>
 
         <Card className="panel">
           <CardHeader className="border-b border-slate-200/80 pb-5">
-            <CardTitle>数据源状态</CardTitle>
-            <CardDescription>记录当前 Airtable 基础信息、自动识别结果和需要处理的字段提醒。</CardDescription>
+            <CardTitle>数据说明</CardTitle>
+            <CardDescription>确认当前取数范围、同步时间以及需要关注的数据质量提醒。</CardDescription>
           </CardHeader>
           <CardContent className="space-y-4 pt-6">
             <div className="grid gap-3 md:grid-cols-2">
-              <SourceInfoCard label="Base 名称" value={data.baseName} />
-              <SourceInfoCard label="积分源表" value={data.sourceTableName} />
-              <SourceInfoCard label="Base ID" value={data.baseId} />
+              <SourceInfoCard label="当前 Base" value={data.baseName} />
+              <SourceInfoCard label="识别模式" value={analytics ? "标准积分链路" : "排行榜识别"} />
               <SourceInfoCard
                 label="最近同步"
-                value={data.lastSyncedAt ? formatDateTimeLabel(data.lastSyncedAt) : "Airtable 未提供时间字段"}
+                value={data.lastSyncedAt ? formatDateTimeLabel(data.lastSyncedAt) : "未提供时间字段"}
+              />
+              <SourceInfoCard
+                label="数据覆盖"
+                value={`${formatNumber(data.summary.teamCount)} 个团队 / ${formatNumber(data.summary.memberCount)} 位成员`}
               />
             </div>
 
             <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm shadow-slate-200/50">
               <div className="flex flex-wrap items-center gap-2">
-                <Badge tone="accent">自动扫描可访问 base</Badge>
-                <Badge tone="neutral">
-                  {data.sourceMode === "normalized-ledger" ? "ledger 聚合模式" : "单表识别模式"}
-                </Badge>
-                <Badge tone="neutral">团队榜由成员积分聚合</Badge>
+                <Badge tone="accent">自动发现数据源</Badge>
+                <Badge tone="neutral">{analytics ? "成员 + 事项 + 评分 + 入账" : "基础榜单模式"}</Badge>
               </div>
               <p className="mt-3 text-sm leading-6 text-slate-600">
-                当前应用不会写死 `AIRTABLE_BASE_ID`，也不会假设固定表名。它会先扫描当前 token 可见的
-                Airtable bases，再优先识别 `point_user + point_ledger`，最后才回退到单表积分榜结构。
+                当前看板会优先把成员、事项、评分和入账串成完整链路；如果上游只提供榜单表，也会自动降级成可用的基础排行视图。
               </p>
             </div>
 
@@ -214,7 +311,7 @@ function ReadyDashboard({ data }: { data: PointsDashboardData }) {
                 ))
               ) : (
                 <div className="rounded-2xl border border-emerald-100 bg-emerald-50/80 p-4 text-sm leading-6 text-emerald-900">
-                  当前已成功识别可用的团队和个人积分字段，没有额外的数据质量警告。
+                  当前数据结构完整，可直接支撑组织总览、流程漏斗、团队对比和成员排行。
                 </div>
               )}
             </div>
@@ -232,18 +329,18 @@ function ErrorDashboard({ message, detail }: { message: string; detail?: string 
         <div className="flex flex-col gap-8 px-6 py-6 lg:flex-row lg:items-end lg:justify-between lg:px-8">
           <div className="max-w-4xl">
             <div className="mb-4 flex flex-wrap items-center gap-3">
-              <span className="rounded-full bg-teal-600 px-3 py-1 text-xs font-semibold tracking-[0.24em] text-white uppercase">
-                Airtable Points
+              <span className="rounded-full bg-slate-950 px-3 py-1 text-xs font-semibold tracking-[0.24em] text-white uppercase">
+                Points Ops
               </span>
-              <span className="rounded-full bg-white/85 px-3 py-1 text-xs font-medium text-slate-600 ring-1 ring-slate-200">
-                Base / Airtable Runtime Discovery
+              <span className="rounded-full bg-white/90 px-3 py-1 text-xs font-medium text-slate-600 ring-1 ring-slate-200">
+                实时数据暂未就绪
               </span>
             </div>
             <h1 className="text-3xl font-semibold tracking-tight text-slate-950 md:text-4xl">
-              团队与个人积分看板
+              积分运营 Dashboard
             </h1>
             <p className="mt-3 max-w-3xl text-sm leading-6 text-slate-600 md:text-base">
-              页面已经切换为 Airtable 运行时读取模式，但当前还没有成功识别出可用于积分看板的数据结构。
+              看板已经切到真实数据模式，但当前还没有拿到可直接展示的积分结构。
             </p>
           </div>
 
@@ -255,84 +352,193 @@ function ErrorDashboard({ message, detail }: { message: string; detail?: string 
         </div>
 
         <div className="grid gap-px bg-slate-200/70 md:grid-cols-3">
-          <MetricTile label="扫描范围" value="当前 token 可见 bases" helper="按平台运行时接口自动枚举" />
-          <MetricTile label="数据来源" value="Airtable" helper="必须经平台运行时读取，不直接访问 Airtable API" />
-          <MetricTile label="当前输出" value="团队榜 + 个人榜" helper="优先识别 point_user + point_ledger" />
+          <MetricTile label="目标视图" value="组织总览 + 流程漏斗" helper="默认展示团队和成员积分表现" />
+          <MetricTile label="取数方式" value="平台运行时" helper="不会在页面里直接暴露数据源凭据" />
+          <MetricTile label="需要准备" value="可读积分结构" helper="优先使用完整积分链路，其次可降级到榜单表" />
         </div>
       </section>
 
       <Card className="panel">
         <CardHeader>
           <CardTitle>接入检查项</CardTitle>
-          <CardDescription>按下面几项确认后，页面会自动切回真实 Airtable 数据。</CardDescription>
+          <CardDescription>把下面几项确认完，页面就会自动切回真实积分数据。</CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
           <InstructionCard
-            title="1. 配置平台 Airtable 凭证"
-            description="在运行时环境中提供 `AIRTABLE_TOKEN`，不要在这个应用代码里写死 token 或 base id。"
+            title="1. 确认运行时凭据"
+            description="需要由运行时环境托管 Airtable 凭据，不要把凭据写进应用页面。"
           />
           <InstructionCard
-            title="2. 确认平台 API 可访问"
-            description="本地或分离部署环境下请配置 `TANKA_PLATFORM_API_URL`，确保应用能访问 `/api/apps/dashboard-demo/...` 运行时接口。"
+            title="2. 确认运行时可访问"
+            description="应用需要能访问平台侧的数据读取能力，才能自动发现可用的积分数据。"
           />
           <InstructionCard
-            title="3. 准备积分数据结构"
-            description="优先使用 `point_user` + `point_ledger`；如果没有，也至少需要一张表能识别出成员姓名、团队名称和累计积分字段。"
+            title="3. 确认积分结构完整"
+            description="如果有成员、事项、评分和入账四层链路，页面会展示完整驾驶舱；否则会回退到基础积分榜。"
           />
-          <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm shadow-slate-200/50">
-            <div className="text-sm font-semibold text-slate-950">运行时接口约定</div>
-            <div className="mt-3 grid gap-2 text-sm text-slate-600">
-              <code>/api/apps/dashboard-demo/data-sources/airtable/bases</code>
-              <code>/api/apps/dashboard-demo/data-sources/airtable/bases/{`{baseId}`}/tables</code>
-              <code>/api/apps/dashboard-demo/query/airtable?baseId={`{baseId}`}&amp;table={`{tableName}`}</code>
-            </div>
-          </div>
         </CardContent>
       </Card>
     </>
   );
 }
 
-function TeamLeaderboardRow({
+function PipelineLane({
+  title,
+  items,
+  emptyText,
+  compact = false,
+}: {
+  title: string;
+  items: WorkflowStageEntry[];
+  emptyText: string;
+  compact?: boolean;
+}) {
+  if (!items.length) {
+    return <EmptyState text={emptyText} />;
+  }
+
+  const total = items.reduce((sum, item) => sum + item.count, 0);
+
+  return (
+    <div>
+      <div className="mb-3 text-sm font-semibold text-slate-900">{title}</div>
+      <div className={compact ? "grid gap-3 sm:grid-cols-2" : "grid gap-3 sm:grid-cols-2 xl:grid-cols-5"}>
+        {items.map((item) => (
+          <StageCard key={item.id} entry={item} total={total} compact={compact} />
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function StageCard({
   entry,
-  hasMonthlyDelta,
+  total,
+  compact,
+}: {
+  entry: WorkflowStageEntry;
+  total: number;
+  compact: boolean;
+}) {
+  const toneClasses = {
+    neutral: "border-slate-200 bg-slate-50/80",
+    accent: "border-teal-100 bg-teal-50/80",
+    success: "border-emerald-100 bg-emerald-50/80",
+    warning: "border-amber-100 bg-amber-50/90",
+  } as const;
+  const width = total > 0 ? Math.max(12, Math.round((entry.count / total) * 100)) : 0;
+
+  return (
+    <div className={`rounded-2xl border p-4 ${toneClasses[entry.tone]}`}>
+      <div className="flex items-start justify-between gap-3">
+        <div className="text-sm font-medium text-slate-700">{entry.label}</div>
+        <div className="text-lg font-semibold tracking-tight text-slate-950">{formatNumber(entry.count)}</div>
+      </div>
+      {!compact ? (
+        <>
+          <div className="mt-3 h-2 rounded-full bg-white/70">
+            <div className="h-2 rounded-full bg-slate-950/75" style={{ width: `${width}%` }} />
+          </div>
+          <div className="mt-2 text-xs text-slate-500">{total > 0 ? `${Math.round((entry.count / total) * 100)}% 占比` : "无数据"}</div>
+        </>
+      ) : (
+        <div className="mt-2 text-xs text-slate-500">{total > 0 ? `${Math.round((entry.count / total) * 100)}%` : "无数据"}</div>
+      )}
+    </div>
+  );
+}
+
+function CompositionRow({ entry }: { entry: PointCompositionEntry }) {
+  const toneClass =
+    entry.points < 0
+      ? "border-rose-100 bg-rose-50/80 text-rose-700"
+      : entry.id === "bonus"
+        ? "border-amber-100 bg-amber-50/80 text-amber-800"
+        : "border-emerald-100 bg-emerald-50/80 text-emerald-800";
+
+  return (
+    <div className={`rounded-2xl border p-4 ${toneClass}`}>
+      <div className="flex items-start justify-between gap-3">
+        <div>
+          <div className="text-sm font-semibold">{entry.label}</div>
+          <div className="mt-1 text-xs opacity-75">{formatNumber(entry.count)} 次评分动作</div>
+        </div>
+        <div className="text-right">
+          <div className="text-lg font-semibold">{formatSignedNumber(entry.points)}</div>
+          <div className="mt-1 text-xs opacity-75">积分影响</div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function TeamSpotlightCard({
+  entry,
+  topScore,
 }: {
   entry: TeamPointsEntry;
-  hasMonthlyDelta: boolean;
+  topScore: number;
 }) {
+  const width = Math.max(12, Math.round((entry.totalPoints / topScore) * 100));
+
   return (
-    <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm shadow-slate-200/60">
+    <div className="rounded-[24px] border border-slate-200 bg-white p-5 shadow-sm shadow-slate-200/60">
+      <div className="flex items-start justify-between gap-4">
+        <div>
+          <div className="text-xs uppercase tracking-[0.18em] text-slate-400">#{entry.rank}</div>
+          <div className="mt-2 text-xl font-semibold tracking-tight text-slate-950">{entry.teamName}</div>
+        </div>
+        <Badge tone={entry.rank === 1 ? "accent" : "neutral"}>{entry.shareOfTotal}% 占比</Badge>
+      </div>
+
+      <div className="mt-4 text-3xl font-semibold tracking-tight text-slate-950">{formatNumber(entry.totalPoints)}</div>
+      <div className="mt-1 text-sm text-slate-600">
+        {formatNumber(entry.memberCount)} 人，人均 {formatNumber(entry.averagePoints)}，带头人 {entry.topPerformerName}
+      </div>
+
+      <div className="mt-4 h-2 rounded-full bg-slate-100">
+        <div className="h-2 rounded-full bg-teal-500" style={{ width: `${width}%` }} />
+      </div>
+
+      <div className="mt-3 text-sm text-slate-600">
+        最近周期 {entry.monthlyDelta !== null ? formatSignedNumber(entry.monthlyDelta) : "未提供月变化"}
+      </div>
+    </div>
+  );
+}
+
+function CompactTeamRow({
+  entry,
+  topScore,
+}: {
+  entry: TeamPointsEntry;
+  topScore: number;
+}) {
+  const width = Math.max(10, Math.round((entry.totalPoints / topScore) * 100));
+
+  return (
+    <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm shadow-slate-200/50">
       <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-        <div className="flex items-start gap-4">
-          <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-slate-950 text-sm font-semibold text-white">
-            #{entry.rank}
+        <div className="min-w-0">
+          <div className="flex flex-wrap items-center gap-2">
+            <h3 className="font-semibold text-slate-950">
+              #{entry.rank} {entry.teamName}
+            </h3>
+            <Badge tone="neutral">{entry.memberCount} 人</Badge>
           </div>
-          <div className="min-w-0">
-            <div className="flex flex-wrap items-center gap-2">
-              <h3 className="font-semibold text-slate-950">{entry.teamName}</h3>
-              <Badge tone={entry.rank === 1 ? "accent" : "neutral"}>{entry.shareOfTotal}% 占比</Badge>
-            </div>
-            <p className="mt-1 text-sm text-slate-600">
-              {entry.memberCount} 人参与，团队最高分 {entry.topPerformerName}
-            </p>
+          <div className="mt-2 h-2 rounded-full bg-slate-100">
+            <div className="h-2 rounded-full bg-slate-900" style={{ width: `${width}%` }} />
           </div>
         </div>
 
         <div className="grid gap-3 text-sm text-slate-600 sm:grid-cols-3">
-          <InfoPair label="累计积分" value={`${formatNumber(entry.totalPoints)} 分`} />
-          <InfoPair label="人均积分" value={`${formatNumber(entry.averagePoints)} 分`} />
+          <InfoPair label="总分" value={formatNumber(entry.totalPoints)} />
+          <InfoPair label="人均" value={formatNumber(entry.averagePoints)} />
           <InfoPair
-            label={hasMonthlyDelta ? "本月新增" : "团队成员"}
-            value={hasMonthlyDelta ? formatSignedNumber(entry.monthlyDelta) : `${formatNumber(entry.memberCount)} 人`}
+            label="最近周期"
+            value={entry.monthlyDelta !== null ? formatSignedNumber(entry.monthlyDelta) : "未提供"}
           />
         </div>
-      </div>
-
-      <div className="mt-4 h-2 rounded-full bg-slate-100">
-        <div
-          className="h-2 rounded-full bg-teal-500"
-          style={{ width: `${Math.max(8, Math.min(entry.shareOfTotal, 100))}%` }}
-        />
       </div>
     </div>
   );
@@ -341,14 +547,18 @@ function TeamLeaderboardRow({
 function PersonalLeaderboardRow({
   entry,
   hasMonthlyDelta,
+  topScore,
 }: {
   entry: PersonalPointsEntry;
   hasMonthlyDelta: boolean;
+  topScore: number;
 }) {
+  const width = Math.max(10, Math.round((entry.totalPoints / topScore) * 100));
+
   return (
     <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm shadow-slate-200/50">
       <div className="flex items-start justify-between gap-4">
-        <div className="flex items-start gap-4">
+        <div className="flex min-w-0 items-start gap-4">
           <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-slate-950 text-sm font-semibold text-white">
             #{entry.rank}
           </div>
@@ -358,21 +568,44 @@ function PersonalLeaderboardRow({
               <Badge tone="neutral">{entry.teamName}</Badge>
               {entry.role ? <Badge tone="accent">{entry.role}</Badge> : null}
             </div>
+            <div className="mt-3 h-1.5 rounded-full bg-slate-100">
+              <div className="h-1.5 rounded-full bg-teal-500" style={{ width: `${width}%` }} />
+            </div>
             <p className="mt-2 text-sm text-slate-600">
               {hasMonthlyDelta && entry.monthlyDelta !== null
-                ? `本月变化 ${formatSignedNumber(entry.monthlyDelta)}`
-                : "当前展示累计积分表现"}
+                ? `最近周期变化 ${formatSignedNumber(entry.monthlyDelta)}`
+                : "当前显示累计积分表现"}
             </p>
           </div>
         </div>
 
         <div className="text-right">
           <div className="text-lg font-semibold text-slate-950">{formatNumber(entry.totalPoints)} 分</div>
-          <div className={`mt-1 text-sm ${entry.monthlyDelta !== null && entry.monthlyDelta >= 0 ? "text-emerald-600" : "text-slate-500"}`}>
+          <div
+            className={`mt-1 text-sm ${
+              entry.monthlyDelta !== null && entry.monthlyDelta >= 0 ? "text-emerald-600" : "text-slate-500"
+            }`}
+          >
             {hasMonthlyDelta ? formatSignedNumber(entry.monthlyDelta) : "累计积分"}
           </div>
         </div>
       </div>
+    </div>
+  );
+}
+
+function RoleContributionCard({ entry }: { entry: RoleContributionEntry }) {
+  return (
+    <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm shadow-slate-200/50">
+      <div className="flex items-start justify-between gap-3">
+        <div>
+          <div className="text-sm font-semibold text-slate-950">{entry.roleName}</div>
+          <div className="mt-1 text-xs text-slate-500">{formatNumber(entry.memberCount)} 人</div>
+        </div>
+        <Badge tone="neutral">人均 {formatNumber(entry.averagePoints)}</Badge>
+      </div>
+      <div className="mt-4 text-2xl font-semibold tracking-tight text-slate-950">{formatNumber(entry.totalPoints)}</div>
+      <div className="mt-1 text-sm text-slate-600">该角色当前累计积分</div>
     </div>
   );
 }
@@ -441,9 +674,9 @@ function MetricTile({
 
 function MetricMini({ label, value }: { label: string; value: string }) {
   return (
-    <div className="rounded-2xl bg-white/10 px-4 py-3">
-      <div className="text-xs uppercase tracking-[0.18em] text-white/55">{label}</div>
-      <div className="mt-2 text-sm font-semibold text-white">{value}</div>
+    <div className="rounded-2xl border border-slate-200 bg-slate-50/80 px-4 py-3">
+      <div className="text-xs uppercase tracking-[0.18em] text-slate-400">{label}</div>
+      <div className="mt-2 text-sm font-semibold text-slate-950">{value}</div>
     </div>
   );
 }
@@ -457,10 +690,31 @@ function InfoPair({ label, value }: { label: string; value: string }) {
   );
 }
 
-function formatSignedNumber(value: number | null) {
-  if (value === null) {
+function EmptyState({ text }: { text: string }) {
+  return (
+    <div className="rounded-2xl border border-dashed border-slate-200 bg-white/70 p-4 text-sm leading-6 text-slate-500">
+      {text}
+    </div>
+  );
+}
+
+function formatSignedNumber(value: number | null | undefined) {
+  if (value === null || value === undefined) {
     return "未提供";
   }
 
   return `${value > 0 ? "+" : ""}${formatNumber(value)}`;
+}
+
+function formatCycleLabel(value: string | null) {
+  if (!value) {
+    return "最近周期";
+  }
+
+  const [year, month] = value.split("-");
+  if (!year || !month) {
+    return value;
+  }
+
+  return `${year}.${month}`;
 }

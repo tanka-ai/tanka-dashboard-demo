@@ -172,6 +172,48 @@ export interface TeamPointsEntry {
   shareOfTotal: number;
 }
 
+export interface WorkflowStageEntry {
+  id: string;
+  label: string;
+  count: number;
+  tone: "neutral" | "accent" | "success" | "warning";
+}
+
+export interface RoleContributionEntry {
+  id: string;
+  roleName: string;
+  memberCount: number;
+  totalPoints: number;
+  averagePoints: number;
+}
+
+export interface PointCompositionEntry {
+  id: string;
+  label: string;
+  count: number;
+  points: number;
+}
+
+export interface PointsOperationsSnapshot {
+  currentCycleLabel: string | null;
+  currentCyclePoints: number | null;
+  effectiveLedgerCount: number;
+  activeMemberCount: number;
+  zeroPointMemberCount: number;
+  openWorkItemCount: number | null;
+  pendingEvaluationCount: number | null;
+  approvedEvaluationCount: number | null;
+}
+
+export interface PointsDashboardAnalytics {
+  ops: PointsOperationsSnapshot;
+  roleBreakdown: RoleContributionEntry[];
+  workItemStages: WorkflowStageEntry[];
+  evaluationStages: WorkflowStageEntry[];
+  taskTypeBreakdown: WorkflowStageEntry[];
+  pointComposition: PointCompositionEntry[];
+}
+
 export interface PointsDashboardSummary {
   teamCount: number;
   memberCount: number;
@@ -196,6 +238,7 @@ export interface PointsDashboardData {
   warnings: string[];
   personalLeaderboard: PersonalPointsEntry[];
   teamLeaderboard: TeamPointsEntry[];
+  analytics: PointsDashboardAnalytics | null;
   summary: PointsDashboardSummary;
 }
 

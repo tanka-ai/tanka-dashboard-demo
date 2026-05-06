@@ -3,6 +3,7 @@ import { headers } from "next/headers";
 
 import type {
   PersonalPointsEntry,
+  PointsDashboardAnalytics,
   PointsDashboardData,
   PointsDashboardLoadResult,
   TeamPointsEntry,
@@ -87,6 +88,18 @@ const UPDATED_AT_FIELD_ALIASES = [
 
 const NORMALIZED_USER_TABLE_ALIASES = ["point_user", "points_user", "user_points", "member_points"] as const;
 const NORMALIZED_LEDGER_TABLE_ALIASES = ["point_ledger", "points_ledger", "ledger_points", "score_ledger"] as const;
+const NORMALIZED_WORK_ITEM_TABLE_ALIASES = [
+  "point_work_item",
+  "points_work_item",
+  "work_item_points",
+  "work_item",
+] as const;
+const NORMALIZED_EVALUATION_TABLE_ALIASES = [
+  "point_evaluation",
+  "points_evaluation",
+  "evaluation_points",
+  "score_evaluation",
+] as const;
 const USER_IDENTIFIER_FIELD_ALIASES = ["user_id", "userId", "member_id", "memberId", "employeeId"] as const;
 const LEDGER_POINTS_FIELD_ALIASES = [
   "delta_score",
@@ -178,6 +191,7 @@ interface TableCandidate {
   sourceMode: "normalized-ledger" | "single-table";
   tableName: string;
   members: DraftMemberRow[];
+  analytics: PointsDashboardAnalytics | null;
   score: number;
   hasMonthlyDelta: boolean;
   hasRole: boolean;
@@ -204,6 +218,20 @@ interface NormalizedLedgerRow {
   createdTime: string | null;
 }
 
+interface NormalizedWorkItemRow {
+  id: string;
+  status: string | null;
+  taskKind: string | null;
+  sourceType: string | null;
+}
+
+interface NormalizedEvaluationRow {
+  id: string;
+  status: string | null;
+  pointKind: string | null;
+  effectiveScore: number;
+}
+
 export async function getPointsDashboardData(): Promise<PointsDashboardLoadResult> {
   noStore();
 
@@ -228,23 +256,23 @@ export async function getPointsDashboardData(): Promise<PointsDashboardLoadResul
     );
 
     let scannedTableCount = 0;
-    const candidates = inspectionResults
-      .filter(
-        (result): result is PromiseFulfilledResult<{
-          base: AirtableBaseMeta;
-          tableCount: number;
-          candidate: TableCandidate | null;
-          warnings: string[];
-        }> => result.status === "fulfilled",
-      )
-      .map((result) => {
-        scannedTableCount += result.value.tableCount;
-        return {
+    const candidates = inspectionResults.flatMap((result) => {
+      if (result.status !== "fulfilled") {
+        return [];
+      }
+
+      scannedTableCount += result.value.tableCount;
+      if (!result.value.candidate) {
+        return [];
+      }
+
+      return [
+        {
           base: result.value.base,
           candidate: result.value.candidate,
-        };
-      })
-      .filter((entry): entry is { base: AirtableBaseMeta; candidate: TableCandidate } => entry.candidate !== null);
+        },
+      ];
+    });
 
     if (!scannedTableCount) {
       return {
@@ -323,12 +351,13 @@ async function inspectBase(origin: string, base: AirtableBaseMeta) {
     ),
   ];
 
-  const candidates = tableResults
-    .filter((result): result is PromiseFulfilledResult<{ candidate: TableCandidate | null; warnings: string[] }> => {
-      return result.status === "fulfilled";
-    })
-    .map((result) => result.value.candidate)
-    .filter((candidate): candidate is TableCandidate => candidate !== null);
+  const candidates = tableResults.flatMap((result) => {
+    if (result.status !== "fulfilled" || !result.value.candidate) {
+      return [];
+    }
+
+    return [result.value.candidate];
+  });
 
   return {
     base,
@@ -338,9 +367,15 @@ async function inspectBase(origin: string, base: AirtableBaseMeta) {
   };
 }
 
-async function loadNormalizedPointsCandidate(origin: string, base: AirtableBaseMeta, tables: AirtableTableMeta[]) {
+async function loadNormalizedPointsCandidate(
+  origin: string,
+  base: AirtableBaseMeta,
+  tables: AirtableTableMeta[],
+): Promise<{ candidate: TableCandidate | null; warnings: string[] }> {
   const userTable = findTableByAliases(tables, NORMALIZED_USER_TABLE_ALIASES);
   const ledgerTable = findTableByAliases(tables, NORMALIZED_LEDGER_TABLE_ALIASES);
+  const workItemTable = findTableByAliases(tables, NORMALIZED_WORK_ITEM_TABLE_ALIASES);
+  const evaluationTable = findTableByAliases(tables, NORMALIZED_EVALUATION_TABLE_ALIASES);
 
   if (!userTable || !ledgerTable) {
     return {
@@ -349,7 +384,7 @@ async function loadNormalizedPointsCandidate(origin: string, base: AirtableBaseM
     };
   }
 
-  const [userPayload, ledgerPayload] = await Promise.all([
+  const [userPayload, ledgerPayload, workItemPayload, evaluationPayload] = await Promise.all([
     fetchJson(
       origin,
       `/api/apps/${APP_ID}/query/airtable?baseId=${encodeURIComponent(base.id)}&table=${encodeURIComponent(userTable.name)}`,
@@ -360,6 +395,20 @@ async function loadNormalizedPointsCandidate(origin: string, base: AirtableBaseM
       `/api/apps/${APP_ID}/query/airtable?baseId=${encodeURIComponent(base.id)}&table=${encodeURIComponent(ledgerTable.name)}`,
       `读取表 ${ledgerTable.name}`,
     ),
+    workItemTable
+      ? fetchJson(
+          origin,
+          `/api/apps/${APP_ID}/query/airtable?baseId=${encodeURIComponent(base.id)}&table=${encodeURIComponent(workItemTable.name)}`,
+          `读取表 ${workItemTable.name}`,
+        )
+      : Promise.resolve(null),
+    evaluationTable
+      ? fetchJson(
+          origin,
+          `/api/apps/${APP_ID}/query/airtable?baseId=${encodeURIComponent(base.id)}&table=${encodeURIComponent(evaluationTable.name)}`,
+          `读取表 ${evaluationTable.name}`,
+        )
+      : Promise.resolve(null),
   ]);
 
   const users = parseRecordList(userPayload).map(mapNormalizedUserRow).filter((row): row is NormalizedUserDirectoryRow => {
@@ -368,6 +417,18 @@ async function loadNormalizedPointsCandidate(origin: string, base: AirtableBaseM
   const ledgers = parseRecordList(ledgerPayload).map(mapNormalizedLedgerRow).filter((row): row is NormalizedLedgerRow => {
     return row !== null;
   });
+  const workItems = workItemPayload
+    ? parseRecordList(workItemPayload).map(mapNormalizedWorkItemRow).filter((row): row is NormalizedWorkItemRow => {
+        return row !== null;
+      })
+    : [];
+  const evaluations = evaluationPayload
+    ? parseRecordList(evaluationPayload)
+        .map(mapNormalizedEvaluationRow)
+        .filter((row): row is NormalizedEvaluationRow => {
+          return row !== null;
+        })
+    : [];
 
   if (!users.length || !ledgers.length) {
     return {
@@ -391,6 +452,7 @@ async function loadNormalizedPointsCandidate(origin: string, base: AirtableBaseM
       sourceMode: "normalized-ledger",
       tableName: `${userTable.name} + ${ledgerTable.name}`,
       members: aggregated.members,
+      analytics: buildNormalizedAnalytics(aggregated.members, aggregated.activeLedgers, workItems, evaluations),
       score: scoreNormalizedCandidate(userTable.name, ledgerTable.name, aggregated.members.length, ledgers.length),
       hasMonthlyDelta: aggregated.members.some((member) => member.monthlyDelta !== null),
       hasRole: aggregated.members.some((member) => member.role),
@@ -402,7 +464,11 @@ async function loadNormalizedPointsCandidate(origin: string, base: AirtableBaseM
   };
 }
 
-async function loadTableCandidate(origin: string, baseId: string, table: AirtableTableMeta) {
+async function loadTableCandidate(
+  origin: string,
+  baseId: string,
+  table: AirtableTableMeta,
+): Promise<{ candidate: TableCandidate | null; warnings: string[] }> {
   const payload = await fetchJson(
     origin,
     `/api/apps/${APP_ID}/query/airtable?baseId=${encodeURIComponent(baseId)}&table=${encodeURIComponent(table.name)}`,
@@ -437,6 +503,7 @@ async function loadTableCandidate(origin: string, baseId: string, table: Airtabl
       sourceMode: "single-table",
       tableName: table.name,
       members,
+      analytics: null,
       score: scoreTableCandidate(table.name, members, {
         hasMonthlyDelta,
         hasRole,
@@ -547,8 +614,132 @@ function aggregateMembersFromLedger(users: NormalizedUserDirectoryRow[], ledgers
 
   return {
     members: Array.from(members.values()),
+    activeLedgers,
     latestUpdatedAt,
     warnings,
+  };
+}
+
+function buildNormalizedAnalytics(
+  members: DraftMemberRow[],
+  activeLedgers: NormalizedLedgerRow[],
+  workItems: NormalizedWorkItemRow[],
+  evaluations: NormalizedEvaluationRow[],
+): PointsDashboardAnalytics {
+  const latestCycleDate = activeLedgers.reduce<string | null>((latest, ledger) => {
+    if (!ledger.occurredAt) {
+      return latest;
+    }
+
+    if (!latest || Date.parse(ledger.occurredAt) > Date.parse(latest)) {
+      return ledger.occurredAt;
+    }
+
+    return latest;
+  }, null);
+  const currentCycleLabel = latestCycleDate ? latestCycleDate.slice(0, 7) : null;
+  const currentCyclePoints = currentCycleLabel
+    ? roundScore(
+        activeLedgers
+          .filter((ledger) => ledger.occurredAt?.startsWith(currentCycleLabel))
+          .reduce((sum, ledger) => sum + ledger.deltaScore, 0),
+      )
+    : null;
+
+  const roleBreakdown = Array.from(
+    members.reduce((map, member) => {
+      const roleName = member.role ?? "未标注角色";
+      const current = map.get(roleName) ?? {
+        id: `role-${normalizeToken(roleName)}`,
+        roleName,
+        memberCount: 0,
+        totalPoints: 0,
+        averagePoints: 0,
+      };
+      current.memberCount += 1;
+      current.totalPoints += member.totalPoints;
+      map.set(roleName, current);
+      return map;
+    }, new Map<string, { id: string; roleName: string; memberCount: number; totalPoints: number; averagePoints: number }>()),
+  )
+    .map(([, role]) => ({
+      ...role,
+      totalPoints: roundScore(role.totalPoints),
+      averagePoints: role.memberCount ? roundScore(role.totalPoints / role.memberCount) : 0,
+    }))
+    .sort((left, right) => right.totalPoints - left.totalPoints);
+
+  const workItemStages = summarizeStageCounts(
+    workItems.map((item) => item.status),
+    [
+      ["DRAFT", "草稿", "neutral"],
+      ["RUNNING", "进行中", "accent"],
+      ["SUBMITTED", "已提交", "warning"],
+      ["REVIEWING", "评审中", "accent"],
+      ["CLOSED", "已关闭", "success"],
+    ],
+  );
+  const evaluationStages = summarizeStageCounts(
+    evaluations.map((item) => item.status),
+    [
+      ["PENDING", "待审核", "warning"],
+      ["APPROVED", "待生效", "accent"],
+      ["EFFECTIVE", "已生效", "success"],
+      ["REJECTED", "已驳回", "neutral"],
+    ],
+  );
+  const taskTypeBreakdown = summarizeStageCounts(
+    workItems.map((item) => item.taskKind),
+    [
+      ["DAILY", "日常任务", "accent"],
+      ["INNOVATION", "创新事项", "success"],
+      ["MENTOR", "辅导赋能", "warning"],
+      ["INCIDENT", "事故处理", "neutral"],
+    ],
+  );
+
+  const pointComposition = Array.from(
+    evaluations.reduce((map, evaluation) => {
+      const pointKind = normalizeToken(evaluation.pointKind ?? "BASE").toUpperCase();
+      const config = getPointKindConfig(pointKind);
+      const current = map.get(config.id) ?? {
+        id: config.id,
+        label: config.label,
+        count: 0,
+        points: 0,
+      };
+      current.count += 1;
+      current.points += config.sign * evaluation.effectiveScore;
+      map.set(config.id, current);
+      return map;
+    }, new Map<string, { id: string; label: string; count: number; points: number }>()),
+  )
+    .map(([, item]) => ({
+      ...item,
+      points: roundScore(item.points),
+    }))
+    .sort((left, right) => Math.abs(right.points) - Math.abs(left.points));
+
+  return {
+    ops: {
+      currentCycleLabel,
+      currentCyclePoints,
+      effectiveLedgerCount: activeLedgers.length,
+      activeMemberCount: members.filter((member) => member.totalPoints > 0).length,
+      zeroPointMemberCount: members.filter((member) => member.totalPoints <= 0).length,
+      openWorkItemCount: workItems.length ? workItems.filter((item) => item.status !== "CLOSED").length : null,
+      pendingEvaluationCount: evaluations.length
+        ? evaluations.filter((item) => item.status === "PENDING").length
+        : null,
+      approvedEvaluationCount: evaluations.length
+        ? evaluations.filter((item) => item.status === "APPROVED").length
+        : null,
+    },
+    roleBreakdown,
+    workItemStages,
+    evaluationStages,
+    taskTypeBreakdown,
+    pointComposition,
   };
 }
 
@@ -670,6 +861,7 @@ function buildDashboardData(
     warnings,
     personalLeaderboard,
     teamLeaderboard,
+    analytics: candidate.analytics,
     summary: {
       teamCount: teamLeaderboard.length,
       memberCount: personalLeaderboard.length,
@@ -811,6 +1003,44 @@ function mapNormalizedLedgerRow(record: JsonObject): NormalizedLedgerRow | null 
   };
 }
 
+function mapNormalizedWorkItemRow(record: JsonObject): NormalizedWorkItemRow | null {
+  const fields = getRecordFields(record);
+  const title = pickStringField(fields, ["title", "name"]);
+
+  if (!title) {
+    return null;
+  }
+
+  return {
+    id:
+      pickStringValue(record, ["id", "recordId"]) ??
+      pickStringField(fields, ["work_item_id", "workItemId"]) ??
+      `work-item-${normalizeToken(title)}`,
+    status: pickStringField(fields, ["status"]),
+    taskKind: pickStringField(fields, ["task_kind", "taskKind", "category"]),
+    sourceType: pickStringField(fields, ["source_type", "sourceType"]),
+  };
+}
+
+function mapNormalizedEvaluationRow(record: JsonObject): NormalizedEvaluationRow | null {
+  const fields = getRecordFields(record);
+  const effectiveScore = pickNumberField(fields, ["effective_score", "effectiveScore", "score"], []);
+
+  if (effectiveScore === null) {
+    return null;
+  }
+
+  return {
+    id:
+      pickStringValue(record, ["id", "recordId"]) ??
+      pickStringField(fields, ["evaluation_id", "evaluationId", "eval_code"]) ??
+      `evaluation-${String(effectiveScore)}`,
+    status: pickStringField(fields, ["status"]),
+    pointKind: pickStringField(fields, ["point_kind", "pointKind", "eval_type"]),
+    effectiveScore,
+  };
+}
+
 function mapMemberRow(record: JsonObject): DraftMemberRow | null {
   const fields = getRecordFields(record);
   const userName = pickStringField(fields, PERSON_NAME_FIELD_ALIASES);
@@ -925,6 +1155,52 @@ function scoreTableCandidate(
   score -= options.duplicateCount * 4;
 
   return score;
+}
+
+function summarizeStageCounts(
+  values: Array<string | null>,
+  definitions: ReadonlyArray<readonly [string, string, "neutral" | "accent" | "success" | "warning"]>,
+) {
+  const counts = new Map<string, number>();
+
+  for (const value of values) {
+    const normalizedValue = normalizeToken(value ?? "").toUpperCase();
+    if (!normalizedValue) {
+      continue;
+    }
+    counts.set(normalizedValue, (counts.get(normalizedValue) ?? 0) + 1);
+  }
+
+  return definitions
+    .map(([id, label, tone]) => ({
+      id: normalizeToken(id),
+      label,
+      count: counts.get(id) ?? 0,
+      tone,
+    }))
+    .filter((item) => item.count > 0);
+}
+
+function getPointKindConfig(pointKind: string) {
+  const normalized = normalizeToken(pointKind).toUpperCase();
+
+  if (normalized === "BONUS") {
+    return { id: "bonus", label: "加分项", sign: 1 };
+  }
+
+  if (normalized === "PENALTY") {
+    return { id: "penalty", label: "扣分项", sign: -1 };
+  }
+
+  if (normalized === "ADJUSTMENT") {
+    return { id: "adjustment", label: "调整项", sign: 1 };
+  }
+
+  return { id: "base", label: "基础分", sign: 1 };
+}
+
+function roundScore(value: number) {
+  return Math.round(value * 100) / 100;
 }
 
 function extractObjectArrays(payload: unknown): JsonObject[][] {
