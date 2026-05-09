@@ -12,6 +12,7 @@ import type {
 const APP_ID = "dashboard-demo";
 const LIST_BASES_PATH = `/api/apps/${APP_ID}/data-sources/airtable/bases`;
 const PLATFORM_ORIGIN_ENV_KEYS = ["TANKA_PLATFORM_API_URL", "APP_URL", "NEXT_PUBLIC_APP_URL"] as const;
+const FORWARDED_RUNTIME_HEADER_KEYS = ["authorization", "cookie", "tenant-id"] as const;
 
 const PERSON_NAME_FIELD_ALIASES = [
   "userName",
@@ -880,13 +881,6 @@ function buildDashboardData(
 }
 
 async function resolveRuntimeOrigin() {
-  for (const envKey of PLATFORM_ORIGIN_ENV_KEYS) {
-    const envValue = process.env[envKey];
-    if (envValue) {
-      return envValue.replace(/\/$/, "");
-    }
-  }
-
   const headerStore = await headers();
   const host = headerStore.get("x-forwarded-host") ?? headerStore.get("host");
   const protocol =
@@ -895,6 +889,13 @@ async function resolveRuntimeOrigin() {
 
   if (host) {
     return `${protocol}://${host}`;
+  }
+
+  for (const envKey of PLATFORM_ORIGIN_ENV_KEYS) {
+    const envValue = process.env[envKey];
+    if (envValue) {
+      return envValue.replace(/\/$/, "");
+    }
   }
 
   const vercelUrl = process.env.VERCEL_URL;
@@ -906,11 +907,10 @@ async function resolveRuntimeOrigin() {
 }
 
 async function fetchJson(origin: string, path: string, actionLabel: string) {
+  const requestHeaders = await buildRuntimeRequestHeaders();
   const response = await fetch(`${origin}${path}`, {
     cache: "no-store",
-    headers: {
-      accept: "application/json",
-    },
+    headers: requestHeaders,
   });
 
   if (!response.ok) {
@@ -918,6 +918,27 @@ async function fetchJson(origin: string, path: string, actionLabel: string) {
   }
 
   return (await response.json()) as unknown;
+}
+
+async function buildRuntimeRequestHeaders() {
+  const requestHeaders = new Headers({
+    accept: "application/json",
+  });
+  const headerStore = await headers();
+
+  for (const [key, value] of headerStore.entries()) {
+    const normalizedKey = key.toLowerCase();
+
+    if (shouldForwardRuntimeHeader(normalizedKey)) {
+      requestHeaders.set(key, value);
+    }
+  }
+
+  return requestHeaders;
+}
+
+function shouldForwardRuntimeHeader(headerKey: string) {
+  return FORWARDED_RUNTIME_HEADER_KEYS.includes(headerKey as (typeof FORWARDED_RUNTIME_HEADER_KEYS)[number]) || headerKey.startsWith("x-");
 }
 
 function parseBaseList(payload: unknown) {
