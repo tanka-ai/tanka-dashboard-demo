@@ -1,6 +1,6 @@
 import { unstable_noStore as noStore } from "next/cache";
-import { headers } from "next/headers";
 
+import { callLinkTool, TankaLinkError } from "@/lib/tanka-link";
 import type {
   PersonalPointsEntry,
   PointsDashboardAnalytics,
@@ -8,11 +8,6 @@ import type {
   PointsDashboardLoadResult,
   TeamPointsEntry,
 } from "@/lib/contracts";
-
-const APP_ID = "dashboard-demo";
-const LIST_BASES_PATH = `/api/apps/${APP_ID}/data-sources/airtable/bases`;
-const PLATFORM_ORIGIN_ENV_KEYS = ["TANKA_PLATFORM_API_URL", "APP_URL", "NEXT_PUBLIC_APP_URL"] as const;
-const FORWARDED_RUNTIME_HEADER_KEYS = ["authorization", "cookie", "tenant-id"] as const;
 
 const PERSON_NAME_FIELD_ALIASES = [
   "userName",
@@ -237,8 +232,7 @@ export async function getPointsDashboardData(): Promise<PointsDashboardLoadResul
   noStore();
 
   try {
-    const origin = await resolveRuntimeOrigin();
-    const basesPayload = await fetchJson(origin, LIST_BASES_PATH, "读取 Airtable base 列表");
+    const basesPayload = await callLinkTool("airtable", "airtable_list_bases", {});
     const bases = parseBaseList(basesPayload);
     if (!bases.length) {
       return {
@@ -251,7 +245,7 @@ export async function getPointsDashboardData(): Promise<PointsDashboardLoadResul
       };
     }
 
-    const inspectionResults = await Promise.allSettled(bases.map((base) => inspectBase(origin, base)));
+    const inspectionResults = await Promise.allSettled(bases.map((base) => inspectBase(base)));
     const warnings = inspectionResults.flatMap((result) =>
       result.status === "rejected" ? [getUnknownErrorMessage(result.reason)] : result.value.warnings,
     );
@@ -304,23 +298,24 @@ export async function getPointsDashboardData(): Promise<PointsDashboardLoadResul
       data: buildDashboardData(bestCandidate.base, bestCandidate.candidate, warnings),
     };
   } catch (error) {
+    const code = error instanceof TankaLinkError && error.code === "tool_error" ? "LINK_TOOL_ERROR" : "RUNTIME_UNAVAILABLE";
+    const message =
+      code === "LINK_TOOL_ERROR"
+        ? "Tanka-Link 返回错误,Airtable 数据暂时取不到。"
+        : "当前无法通过 Tanka-Link 读取 Airtable 数据。";
     return {
       status: "error",
       error: {
-        code: "RUNTIME_UNAVAILABLE",
-        message: "当前无法从平台运行时读取 Airtable 数据。",
+        code,
+        message,
         detail: getUnknownErrorMessage(error),
       },
     };
   }
 }
 
-async function inspectBase(origin: string, base: AirtableBaseMeta) {
-  const tablesPayload = await fetchJson(
-    origin,
-    `/api/apps/${APP_ID}/data-sources/airtable/bases/${encodeURIComponent(base.id)}/tables`,
-    `读取 base ${base.name} 的表列表`,
-  );
+async function inspectBase(base: AirtableBaseMeta) {
+  const tablesPayload = await callLinkTool("airtable", "airtable_list_tables", { base_id: base.id });
   const tables = parseTableList(tablesPayload);
 
   if (!tables.length) {
@@ -332,7 +327,7 @@ async function inspectBase(origin: string, base: AirtableBaseMeta) {
     };
   }
 
-  const normalizedCandidate = await loadNormalizedPointsCandidate(origin, base, tables);
+  const normalizedCandidate = await loadNormalizedPointsCandidate(base, tables);
   if (normalizedCandidate.candidate) {
     return {
       base,
@@ -342,7 +337,7 @@ async function inspectBase(origin: string, base: AirtableBaseMeta) {
     };
   }
 
-  const tableResults = await Promise.allSettled(tables.map((table) => loadTableCandidate(origin, base.id, table)));
+  const tableResults = await Promise.allSettled(tables.map((table) => loadTableCandidate(base.id, table)));
   const warnings = [
     ...normalizedCandidate.warnings,
     ...tableResults.flatMap((result) =>
@@ -369,7 +364,6 @@ async function inspectBase(origin: string, base: AirtableBaseMeta) {
 }
 
 async function loadNormalizedPointsCandidate(
-  origin: string,
   base: AirtableBaseMeta,
   tables: AirtableTableMeta[],
 ): Promise<{ candidate: TableCandidate | null; warnings: string[] }> {
@@ -386,29 +380,13 @@ async function loadNormalizedPointsCandidate(
   }
 
   const [userPayload, ledgerPayload, workItemPayload, evaluationPayload] = await Promise.all([
-    fetchJson(
-      origin,
-      `/api/apps/${APP_ID}/query/airtable?baseId=${encodeURIComponent(base.id)}&table=${encodeURIComponent(userTable.name)}`,
-      `读取表 ${userTable.name}`,
-    ),
-    fetchJson(
-      origin,
-      `/api/apps/${APP_ID}/query/airtable?baseId=${encodeURIComponent(base.id)}&table=${encodeURIComponent(ledgerTable.name)}`,
-      `读取表 ${ledgerTable.name}`,
-    ),
+    callLinkTool("airtable", "airtable_list_records", { base_id: base.id, table_name: userTable.name }),
+    callLinkTool("airtable", "airtable_list_records", { base_id: base.id, table_name: ledgerTable.name }),
     workItemTable
-      ? fetchJson(
-          origin,
-          `/api/apps/${APP_ID}/query/airtable?baseId=${encodeURIComponent(base.id)}&table=${encodeURIComponent(workItemTable.name)}`,
-          `读取表 ${workItemTable.name}`,
-        )
+      ? callLinkTool("airtable", "airtable_list_records", { base_id: base.id, table_name: workItemTable.name })
       : Promise.resolve(null),
     evaluationTable
-      ? fetchJson(
-          origin,
-          `/api/apps/${APP_ID}/query/airtable?baseId=${encodeURIComponent(base.id)}&table=${encodeURIComponent(evaluationTable.name)}`,
-          `读取表 ${evaluationTable.name}`,
-        )
+      ? callLinkTool("airtable", "airtable_list_records", { base_id: base.id, table_name: evaluationTable.name })
       : Promise.resolve(null),
   ]);
 
@@ -466,15 +444,13 @@ async function loadNormalizedPointsCandidate(
 }
 
 async function loadTableCandidate(
-  origin: string,
   baseId: string,
   table: AirtableTableMeta,
 ): Promise<{ candidate: TableCandidate | null; warnings: string[] }> {
-  const payload = await fetchJson(
-    origin,
-    `/api/apps/${APP_ID}/query/airtable?baseId=${encodeURIComponent(baseId)}&table=${encodeURIComponent(table.name)}`,
-    `读取表 ${table.name}`,
-  );
+  const payload = await callLinkTool("airtable", "airtable_list_records", {
+    base_id: baseId,
+    table_name: table.name,
+  });
   const records = parseRecordList(payload);
   const mappedRows = records.map(mapMemberRow).filter((row): row is DraftMemberRow => row !== null);
   const members = consolidateMembers(mappedRows);
@@ -880,67 +856,6 @@ function buildDashboardData(
   };
 }
 
-async function resolveRuntimeOrigin() {
-  const headerStore = await headers();
-  const host = headerStore.get("x-forwarded-host") ?? headerStore.get("host");
-  const protocol =
-    headerStore.get("x-forwarded-proto") ??
-    (host?.includes("localhost") || host?.startsWith("127.0.0.1") ? "http" : "https");
-
-  if (host) {
-    return `${protocol}://${host}`;
-  }
-
-  for (const envKey of PLATFORM_ORIGIN_ENV_KEYS) {
-    const envValue = process.env[envKey];
-    if (envValue) {
-      return envValue.replace(/\/$/, "");
-    }
-  }
-
-  const vercelUrl = process.env.VERCEL_URL;
-  if (vercelUrl) {
-    return `https://${vercelUrl.replace(/^https?:\/\//, "").replace(/\/$/, "")}`;
-  }
-
-  throw new Error("无法推断平台运行时地址，请配置 TANKA_PLATFORM_API_URL，或确保当前请求包含可用的 host header。");
-}
-
-async function fetchJson(origin: string, path: string, actionLabel: string) {
-  const requestHeaders = await buildRuntimeRequestHeaders();
-  const response = await fetch(`${origin}${path}`, {
-    cache: "no-store",
-    headers: requestHeaders,
-  });
-
-  if (!response.ok) {
-    throw new Error(`${actionLabel}失败，状态码 ${response.status}`);
-  }
-
-  return (await response.json()) as unknown;
-}
-
-async function buildRuntimeRequestHeaders() {
-  const requestHeaders = new Headers({
-    accept: "application/json",
-  });
-  const headerStore = await headers();
-
-  for (const [key, value] of headerStore.entries()) {
-    const normalizedKey = key.toLowerCase();
-
-    if (shouldForwardRuntimeHeader(normalizedKey)) {
-      requestHeaders.set(key, value);
-    }
-  }
-
-  return requestHeaders;
-}
-
-function shouldForwardRuntimeHeader(headerKey: string) {
-  return FORWARDED_RUNTIME_HEADER_KEYS.includes(headerKey as (typeof FORWARDED_RUNTIME_HEADER_KEYS)[number]) || headerKey.startsWith("x-");
-}
-
 function parseBaseList(payload: unknown) {
   return extractObjectArrays(payload)
     .flatMap((items) =>
@@ -993,12 +908,12 @@ function mapNormalizedUserRow(record: JsonObject): NormalizedUserDirectoryRow | 
   }
 
   return {
-    recordId: pickStringValue(record, ["id", "recordId"]) ?? `user-${normalizeToken(userName)}`,
+    recordId: pickStringValue(record, ["id", "recordId", "record_id"]) ?? `user-${normalizeToken(userName)}`,
     externalUserId: pickStringField(fields, USER_IDENTIFIER_FIELD_ALIASES),
     userName,
     teamName: pickStringField(fields, TEAM_FIELD_ALIASES) ?? "未分组",
     role: pickStringField(fields, ROLE_FIELD_ALIASES),
-    updatedAt: pickDateValue(record, ["createdTime", "created_at"]) ?? pickDateField(fields, UPDATED_AT_FIELD_ALIASES),
+    updatedAt: pickDateValue(record, ["createdTime", "created_at", "created_time"]) ?? pickDateField(fields, UPDATED_AT_FIELD_ALIASES),
   };
 }
 
@@ -1013,14 +928,14 @@ function mapNormalizedLedgerRow(record: JsonObject): NormalizedLedgerRow | null 
 
   return {
     id:
-      pickStringValue(record, ["id", "recordId"]) ??
+      pickStringValue(record, ["id", "recordId", "record_id"]) ??
       pickStringField(fields, ["ledger_code", "ledgerId", "ledger_id"]) ??
       `ledger-${normalizeToken(JSON.stringify(userReferenceIds))}-${String(deltaScore)}`,
     userReferenceIds,
     deltaScore,
     occurredAt: pickDateField(fields, LEDGER_DATE_FIELD_ALIASES),
     status: pickStringField(fields, ["status"]),
-    createdTime: pickDateValue(record, ["createdTime", "created_at"]),
+    createdTime: pickDateValue(record, ["createdTime", "created_at", "created_time"]),
   };
 }
 
@@ -1034,7 +949,7 @@ function mapNormalizedWorkItemRow(record: JsonObject): NormalizedWorkItemRow | n
 
   return {
     id:
-      pickStringValue(record, ["id", "recordId"]) ??
+      pickStringValue(record, ["id", "recordId", "record_id"]) ??
       pickStringField(fields, ["work_item_id", "workItemId"]) ??
       `work-item-${normalizeToken(title)}`,
     status: pickStringField(fields, ["status"]),
@@ -1053,7 +968,7 @@ function mapNormalizedEvaluationRow(record: JsonObject): NormalizedEvaluationRow
 
   return {
     id:
-      pickStringValue(record, ["id", "recordId"]) ??
+      pickStringValue(record, ["id", "recordId", "record_id"]) ??
       pickStringField(fields, ["evaluation_id", "evaluationId", "eval_code"]) ??
       `evaluation-${String(effectiveScore)}`,
     status: pickStringField(fields, ["status"]),
@@ -1073,7 +988,7 @@ function mapMemberRow(record: JsonObject): DraftMemberRow | null {
 
   const teamName = pickStringField(fields, TEAM_FIELD_ALIASES) ?? "未分组";
   const recordId =
-    pickStringValue(record, ["id", "recordId"]) ??
+    pickStringValue(record, ["id", "recordId", "record_id"]) ??
     `member-${normalizeToken(userName)}-${normalizeToken(teamName)}`;
   const role = pickStringField(fields, ROLE_FIELD_ALIASES);
   const monthlyDelta = pickNumberField(fields, MONTHLY_DELTA_FIELD_ALIASES, []);

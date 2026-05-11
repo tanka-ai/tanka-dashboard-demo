@@ -1,45 +1,21 @@
 {
   "appId": "dashboard-demo",
-  "name": "积分运营看板",
-  "kind": "points-dashboard",
-  "builderMode": "edit",
+  "name": "Engineering Dashboard",
+  "kind": "dashboard",
   "runtime": "nextjs",
-  "description": "面向企业团队的积分工作台，通过 Airtable 自动汇总团队与个人积分表现。",
   "deployment": {
     "provider": "vercel",
     "status": "local-prototype"
   },
-  "views": [
-    {
-      "id": "points-dashboard",
-      "name": "积分看板",
-      "route": "/",
-      "description": "聚合 Airtable 中的团队积分排行、个人积分排行与组织积分概况。"
+  "connectors": {
+    "provider": "tanka-link-mcp",
+    "runtimeEnv": {
+      "baseUrl": "TANKA_LINK_MCP_BASE_URL",
+      "userId": "TANKA_TEST_USER_ID"
+    },
+    "discoveryEndpoints": {
+      "listTools": "/api/apps/dashboard-demo/connectors/{app}/tools",
+      "callTool": "/api/apps/dashboard-demo/connectors/{app}/call"
     }
-  ],
-  "dataSources": [
-    {
-      "provider": "airtable",
-      "status": "discoverable",
-      "baseIdStrategy": "metadata_api",
-      "runtimeEndpoints": {
-        "listBases": "/api/apps/dashboard-demo/data-sources/airtable/bases",
-        "listTables": "/api/apps/dashboard-demo/data-sources/airtable/bases/{baseId}/tables",
-        "queryRecords": "/api/apps/dashboard-demo/query/airtable?baseId={baseId}&table={tableName}"
-      },
-      "requiredEnv": [
-        "AIRTABLE_TOKEN"
-      ],
-      "optionalEnv": [
-        "TANKA_PLATFORM_API_URL"
-      ],
-      "entities": [
-        "PointsDashboardData",
-        "PersonalPointsEntry",
-        "TeamPointsEntry",
-        "PointsDashboardSummary",
-        "PointsDashboardError"
-      ]
-    }
-  ]
+  }
 }

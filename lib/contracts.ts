@@ -243,7 +243,7 @@ export interface PointsDashboardData {
 }
 
 export interface PointsDashboardError {
-  code: "BASE_NOT_FOUND" | "TABLES_NOT_FOUND" | "POINTS_TABLE_NOT_FOUND" | "RUNTIME_UNAVAILABLE";
+  code: "BASE_NOT_FOUND" | "TABLES_NOT_FOUND" | "POINTS_TABLE_NOT_FOUND" | "RUNTIME_UNAVAILABLE" | "LINK_TOOL_ERROR";
   message: string;
   detail?: string;
 }
